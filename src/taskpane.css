@@ -39,6 +39,50 @@ body {
   letter-spacing: -0.3px;
 }
 
+#header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#ai-badge {
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: transparent;
+}
+
+#ai-badge.ai-off {
+  opacity: 0.35;
+  background: transparent;
+}
+
+#ai-badge:not(.ai-off) {
+  opacity: 1;
+  background: rgba(255,255,255,0.2);
+  box-shadow: 0 0 8px rgba(74,222,128,0.5);
+}
+
+#ai-status-text {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 8px;
+  letter-spacing: 0.5px;
+}
+
+.ai-status-off {
+  background: rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.6);
+}
+
+.ai-status-on {
+  background: #4ade80;
+  color: #14532d;
+}
+
 #status-indicator {
   font-size: 10px;
   padding: 2px 8px;
@@ -54,6 +98,75 @@ body {
 .status-disconnected {
   background: #f87171;
   color: #7f1d1d;
+}
+
+/* ========== API Key Section ========== */
+#api-key-section {
+  background: #fff;
+  border-radius: 10px;
+  padding: 8px 10px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+
+#api-key-toggle {
+  font-size: 12px;
+  font-weight: 600;
+  color: #667eea;
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+#api-key-status {
+  font-size: 10px;
+  font-weight: 500;
+}
+
+#api-key-status.key-saved {
+  color: #16a34a;
+}
+
+#api-key-status.key-missing {
+  color: #94a3b8;
+}
+
+#api-key-toggle:hover {
+  color: #764ba2;
+}
+
+#api-key-body {
+  margin-top: 8px;
+}
+
+#api-key-input {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 11px;
+  font-family: "Cascadia Code", "Fira Code", monospace;
+  outline: none;
+  margin-bottom: 6px;
+}
+
+#api-key-input:focus {
+  border-color: #667eea;
+}
+
+#api-key-save {
+  padding: 4px 14px;
+  background: #667eea;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+#api-key-save:hover {
+  background: #5a6fd6;
 }
 
 /* ========== Command Section ========== */

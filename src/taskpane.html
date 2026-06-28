@@ -10,8 +10,32 @@
   <div id="app">
     <header id="header">
       <h1>🤖 Claude Code for PowerPoint</h1>
-      <span id="status-indicator" class="status-disconnected">●</span>
+      <div id="header-right">
+        <span id="ai-badge" class="ai-off" title="AI mode OFF">🧠</span>
+        <span id="ai-status-text" class="ai-status-off">AI OFF</span>
+        <span id="status-indicator" class="status-disconnected">●</span>
+      </div>
     </header>
+
+    <!-- API Key Section (collapsible) -->
+    <section id="api-key-section">
+      <div id="api-key-toggle" title="Configure AI API Key">
+        <span>🔑 API Settings</span>
+        <span id="api-key-status"></span>
+      </div>
+      <div id="api-key-body" style="display:none">
+        <input
+          id="api-key-input"
+          type="password"
+          placeholder="Enter your DeepSeek API key (sk-...)"
+        />
+        <button id="api-key-save">Save</button>
+        <small style="color:#64748b;display:block;margin-top:4px">
+          Uses <b>DeepSeek API</b> (OpenAI-compatible).<br/>
+          Get a key at <a href="https://platform.deepseek.com" target="_blank">platform.deepseek.com</a>
+        </small>
+      </div>
+    </section>
 
     <!-- Command Input Area -->
     <section id="command-section">

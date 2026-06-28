@@ -8,6 +8,7 @@ import { LogEntry } from "./pptApi";
 import { getSelectedSlide, getSelectedShapes } from "./pptApi";
 
 export type EventCallback = (entry: LogEntry) => void;
+export type SlideChangeCallback = (slideId: string) => void;
 
 /** Shape selection change handler */
 let onShapeSelectionChangedHandler: (args?: any) => void;
@@ -20,7 +21,8 @@ let onSlideSelectionChangedHandler: (args?: any) => void;
  * @param onLog — callback to send log entries to the UI
  */
 export async function registerEventHandlers(
-  onLog: EventCallback
+  onLog: EventCallback,
+  onSlideChange?: SlideChangeCallback
 ): Promise<void> {
   // ── Shape Selection Changed ─────────────────────────────────────
   onShapeSelectionChangedHandler = async () => {
@@ -83,6 +85,8 @@ export async function registerEventHandlers(
           message: `📑 Active slide changed: ID=${slide.id}`,
           timestamp: Date.now(),
         });
+        // Update current slide in task pane
+        if (onSlideChange) onSlideChange(slide.id);
       }
     } catch (err) {
       onLog({

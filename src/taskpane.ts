@@ -12,12 +12,14 @@ import "./taskpane.css";
 import { LogEntry, ensureOfficeReady, getSlides, getSelectedSlide, getShapesOnSlide, getPresentationInfo } from "./services/pptApi";
 import { addShape, addTextBox, setShapeFill, setShapeText, deleteShape, applyStyleToAllShapes, setShapeGeometry } from "./services/shapeService";
 import { addTable, addChart, ChartType, ChartData } from "./services/chartTableService";
-import { getMasterDetails, applyLayoutToSlide, findLayoutByName, setSlideBackground, getThemeDetails, addSlide, deleteSlide, getAllLayouts } from "./services/masterLayoutThemeService";
+import { getMasterDetails, applyLayoutToSlide, findLayoutByName, setSlideBackground, getThemeDetails, addSlide, deleteSlide, getAllLayouts, deleteSlideByIndex, setSlideTitle, moveSlide, duplicateSlide, addSlideWithTitle, getSlidesWithIndex } from "./services/masterLayoutThemeService";
 import { registerEventHandlers, unregisterEventHandlers } from "./services/eventService";
+import { setApiKey, getApiKey, hasApiKey, runAIConversation, executeToolCall, clearApiKey } from "./services/aiService";
 
 // ── State ─────────────────────────────────────────────────────────
 
 let currentSlideId: string | null = null;
+let aiEnabled: boolean = false;
 
 // ── DOM Elements ──────────────────────────────────────────────────
 
@@ -26,7 +28,14 @@ const sendBtn = document.getElementById("send-btn") as HTMLButtonElement;
 const commandHistory = document.getElementById("command-history") as HTMLDivElement;
 const outputContent = document.getElementById("output-content") as HTMLPreElement;
 const statusIndicator = document.getElementById("status-indicator") as HTMLSpanElement;
+const aiBadge = document.getElementById("ai-badge") as HTMLSpanElement;
 const actionButtons = document.querySelectorAll<HTMLButtonElement>(".action-btn");
+const apiKeyToggle = document.getElementById("api-key-toggle") as HTMLDivElement;
+const apiKeyBody = document.getElementById("api-key-body") as HTMLDivElement;
+const apiKeyInput = document.getElementById("api-key-input") as HTMLInputElement;
+const apiKeySave = document.getElementById("api-key-save") as HTMLButtonElement;
+const aiStatusText = document.getElementById("ai-status-text") as HTMLSpanElement;
+const apiKeyStatus = document.getElementById("api-key-status") as HTMLSpanElement;
 
 // ── Logging ───────────────────────────────────────────────────────
 
@@ -60,24 +69,68 @@ function addHistoryEntry(entry: LogEntry): void {
   }
 }
 
-// ── Command Parser ────────────────────────────────────────────────
+// ── Command Dispatcher ────────────────────────────────────────────
 
-/**
- * Simple natural-language command parser.
- * Parses user input and delegates to the appropriate service.
- */
+/** Main command entry — tries AI first, falls back to regex */
 async function executeCommand(input: string): Promise<void> {
   const cmd = input.trim();
   if (!cmd) return;
 
+  // Always refresh current slide before executing
+  try {
+    const active = await getSelectedSlide();
+    if (active) currentSlideId = active.id;
+  } catch { /* ignore */ }
+
   // Add user command to history
   const userDiv = document.createElement("div");
   userDiv.className = "command-entry user";
-  userDiv.textContent = "> " + cmd;
+  userDiv.textContent = "🧠 " + cmd;
   commandHistory.appendChild(userDiv);
   commandHistory.scrollTop = commandHistory.scrollHeight;
 
-  log({ level: "info", message: `Executing: "${cmd}"`, timestamp: Date.now() });
+  // ── AI MODE ────────────────────────────────────────────────────
+  if (aiEnabled && hasApiKey()) {
+    log({ level: "info", message: `🤖 AI processing: "${cmd}"`, timestamp: Date.now() });
+    sendBtn.disabled = true;
+    sendBtn.textContent = "⏳";
+
+    try {
+      const result = await runAIConversation(cmd, currentSlideId);
+
+      // Show AI text responses
+      for (const text of result.messages) {
+        log({ level: "info", message: text, timestamp: Date.now() });
+      }
+
+      // Show tool execution results
+      if (result.toolResults.length > 0) {
+        let successCount = 0;
+        for (const r of result.toolResults) {
+          if (r.success) {
+            successCount++;
+            log({ level: "success", message: r.message, timestamp: Date.now() });
+          } else {
+            log({ level: "warn", message: r.message, timestamp: Date.now() });
+          }
+        }
+        log({ level: "success", message: `✅ ${successCount}/${result.toolResults.length} actions completed`, timestamp: Date.now() });
+      }
+    } catch (err: any) {
+      log({ level: "error", message: `AI error: ${err.message || err}`, timestamp: Date.now() });
+      log({ level: "info", message: 'Falling back to regex commands. Check API key or disable AI mode.', timestamp: Date.now() });
+    } finally {
+      sendBtn.disabled = false;
+      sendBtn.textContent = "▶ Send";
+    }
+    return;
+  }
+
+  // ── REGEX FALLBACK ─────────────────────────────────────────────
+  if (!aiEnabled && hasApiKey()) {
+    log({ level: "warn", message: '💡 AI key is saved but AI mode is OFF. Click 🧠 in header to enable AI.', timestamp: Date.now() });
+  }
+  log({ level: "info", message: aiEnabled ? "⚠️ AI not configured — using regex" : `Executing: "${cmd}"`, timestamp: Date.now() });
 
   try {
     const lower = cmd.toLowerCase();
@@ -228,14 +281,59 @@ async function executeCommand(input: string): Promise<void> {
       }
     }
     else if (/add (a |an )?slide/i.test(cmd)) {
-      const newSlide = await addSlide();
-      log({ level: "success", message: `Added new slide (id: ${newSlide.id})`, timestamp: Date.now() });
+      // "add slide" or "add slide titled My Title"
+      const titleMatch = cmd.match(/(?:slide\s+(?:titled?|named?|with\s+title)\s+)[\"']?(.+?)[\"']?$/i);
+      if (titleMatch) {
+        const s = await addSlideWithTitle(titleMatch[1]);
+        log({ level: "success", message: `Added slide: "${titleMatch[1]}" (id: ${s.id})`, timestamp: Date.now() });
+      } else {
+        const newSlide = await addSlide();
+        log({ level: "success", message: `Added new slide (id: ${newSlide.id})`, timestamp: Date.now() });
+      }
     }
-    else if (/delete (this )?slide/i.test(cmd)) {
+    else if (/delete slide\s*(\d+)/i.test(cmd)) {
+      // "delete slide 3"
+      const numMatch = cmd.match(/delete slide\s*(\d+)/i);
+      const idx = parseInt(numMatch![1]);
+      const msg = await deleteSlideByIndex(idx);
+      log({ level: "success", message: msg, timestamp: Date.now() });
+    }
+    else if (/delete (this |current )?slide/i.test(cmd)) {
       if (currentSlideId) {
         await deleteSlide(currentSlideId);
         currentSlideId = null;
         log({ level: "success", message: "Deleted current slide", timestamp: Date.now() });
+      } else {
+        log({ level: "warn", message: "No slide selected.", timestamp: Date.now() });
+      }
+    }
+    else if (/set (slide )?title/i.test(cmd)) {
+      if (!currentSlideId) { log({ level: "warn", message: "No slide selected.", timestamp: Date.now() }); }
+      else {
+        const titleMatch = cmd.match(/(?:title\s+(?:to\s+)?)[\"']?(.+?)[\"']?$/i);
+        if (titleMatch) {
+          await setSlideTitle(currentSlideId, titleMatch[1]);
+          log({ level: "success", message: `Slide title set to: "${titleMatch[1]}"`, timestamp: Date.now() });
+        } else {
+          log({ level: "warn", message: 'Usage: "set title to Your Title Here"', timestamp: Date.now() });
+        }
+      }
+    }
+    else if (/move slide\s*(\d+)\s+(?:to\s+)?(\d+)/i.test(cmd)) {
+      const mvMatch = cmd.match(/move slide\s*(\d+)\s+(?:to\s+)?(\d+)/i);
+      const slides = await getSlidesWithIndex();
+      const from = slides.find(s => s.index === parseInt(mvMatch![1]));
+      if (!from) { log({ level: "warn", message: `Slide ${mvMatch![1]} not found`, timestamp: Date.now() }); }
+      else {
+        await moveSlide(from.id, parseInt(mvMatch![2]));
+        log({ level: "success", message: `Moved slide ${mvMatch![1]} → ${mvMatch![2]}`, timestamp: Date.now() });
+      }
+    }
+    else if (/duplicate (this |current )?slide/i.test(cmd)) {
+      if (!currentSlideId) { log({ level: "warn", message: "No slide selected.", timestamp: Date.now() }); }
+      else {
+        await duplicateSlide(currentSlideId);
+        log({ level: "success", message: "Duplicated current slide", timestamp: Date.now() });
       }
     }
     else if (/show theme/i.test(cmd) || /get theme/i.test(cmd)) {
@@ -247,16 +345,27 @@ async function executeCommand(input: string): Promise<void> {
 
     else if (/help/i.test(cmd)) {
       log({ level: "info", message: `Available commands:
-• add [rectangle|oval|triangle|diamond|arrow|heart|star5] shape
+  SHAPES:
+• add [rectangle|oval|triangle|diamond|arrow|heart|star5] shape [color]
 • add text box "your text"
-• make all shapes [blue|red|green|yellow|orange|purple]
+• make all shapes [color]
 • fill shape "name" with [color]
-• add table
+• resize shape W×H
+• delete shape "name"
+  CHARTS & TABLES:
 • add [bar|column|pie|line|area] chart
+• add table
+  SLIDES:
+• add slide [titled "Title"]
+• delete slide [N]      (e.g. "delete slide 3")
+• delete current slide
+• set title to "New Title"
+• move slide N to M     (e.g. "move slide 1 to 3")
+• duplicate slide
 • apply layout "name"
 • set background [color]
-• add slide / delete slide
-• resize shape W×H
+  INFO:
+• list slides / shapes / layouts / masters
 • show theme`, timestamp: Date.now() });
     }
     else if (/list (all )?slides?/i.test(cmd)) {
@@ -283,6 +392,95 @@ async function executeCommand(input: string): Promise<void> {
       const list = masters.map((m) => `  ${m.name} (${m.layoutCount} layouts)`).join("\n");
       log({ level: "info", message: `${masters.length} master(s):\n${list}`, timestamp: Date.now() });
     }
+
+    // ── Chinese Commands (中文命令) ────────────────────────────────
+
+    else if (/删[除掉]?\s*(第\s*(\d+|[一二三四五六七八九十]+)\s*页|当前页|这页)/.test(cmd)) {
+      const numMatch = cmd.match(/第\s*(\d+|[一二三四五六七八九十]+)\s*页/);
+      if (numMatch) {
+        const cnNums: Record<string, number> = { 一:1,二:2,三:3,四:4,五:5,六:6,七:7,八:8,九:9,十:10 };
+        const idx = cnNums[numMatch[1]] ?? parseInt(numMatch[1]);
+        const msg = await deleteSlideByIndex(idx);
+        log({ level: "success", message: msg, timestamp: Date.now() });
+      } else if (currentSlideId) {
+        await deleteSlide(currentSlideId);
+        currentSlideId = null;
+        log({ level: "success", message: "已删除当前页", timestamp: Date.now() });
+      }
+    }
+    else if (/(添加|新建|新增|插入)\s*(一张|一个)?\s*幻灯[片页]/i.test(cmd)) {
+      const titleMatch = cmd.match(/(?:标题[是为]?\s*)[\"']?(.+?)[\"']?$/);
+      if (titleMatch) {
+        const s = await addSlideWithTitle(titleMatch[1]);
+        log({ level: "success", message: `已添加幻灯片: "${titleMatch[1]}"`, timestamp: Date.now() });
+      } else {
+        await addSlide();
+        log({ level: "success", message: "已添加新幻灯片", timestamp: Date.now() });
+      }
+    }
+    else if (/移动\s*第?\s*(\d+|[一二三四五六七八九十]+)\s*(页|个)?\s*(到|至)\s*第?\s*(\d+|[一二三四五六七八九十]+)/i.test(cmd)) {
+      const mvMatch = cmd.match(/移动\s*第?\s*(\d+|[一二三四五六七八九十]+)\s*(?:页|个)?\s*(?:到|至)\s*第?\s*(\d+|[一二三四五六七八九十]+)/i);
+      if (mvMatch) {
+        const cnNums: Record<string, number> = { 一:1,二:2,三:3,四:4,五:5,六:6,七:7,八:8,九:9,十:10 };
+        const from = cnNums[mvMatch[1]] ?? parseInt(mvMatch[1]);
+        const to = cnNums[mvMatch[2]] ?? parseInt(mvMatch[2]);
+        const slides = await getSlidesWithIndex();
+        const src = slides.find(s => s.index === from);
+        if (src) {
+          await moveSlide(src.id, to);
+          log({ level: "success", message: `已将第${from}页移至第${to}页`, timestamp: Date.now() });
+        }
+      }
+    }
+    else if (/(复制|拷贝|克隆)\s*(当前|这[张个])?\s*幻灯[片页]/i.test(cmd)) {
+      if (currentSlideId) {
+        await duplicateSlide(currentSlideId);
+        log({ level: "success", message: "已复制当前幻灯片", timestamp: Date.now() });
+      }
+    }
+    else if (/(设置|修改|更改|改)\s*(幻灯[片页]?\s*)?标题/i.test(cmd)) {
+      if (!currentSlideId) { log({ level: "warn", message: "请先选择一个幻灯片", timestamp: Date.now() }); }
+      else {
+        const titleMatch = cmd.match(/(?:标题[是为]?\s*)[\"']?(.+?)[\"']?$/);
+        if (titleMatch) {
+          await setSlideTitle(currentSlideId, titleMatch[1]);
+          log({ level: "success", message: `标题已设置为: "${titleMatch[1]}"`, timestamp: Date.now() });
+        } else {
+          log({ level: "warn", message: '用法: "设置标题为 你的标题"', timestamp: Date.now() });
+        }
+      }
+    }
+    else if (/(设置|更改)\s*背景/i.test(cmd)) {
+      if (currentSlideId) {
+        const colorMatch = cmd.match(/(蓝|红|绿|黄|橙|紫|粉|黑|白|灰|blue|red|green|yellow|orange|purple|pink|black|white|gray)/i);
+        const cnColorMap: Record<string, string> = { 蓝:"blue",红:"red",绿:"green",黄:"yellow",橙:"orange",紫:"purple",粉:"pink",黑:"black",白:"white",灰:"gray" };
+        const color = colorMatch ? (cnColorMap[colorMatch[1]] || colorMatch[1]) : "black";
+        await setSlideBackground(currentSlideId, getColorHex(color));
+        log({ level: "success", message: `背景已设置为${color}`, timestamp: Date.now() });
+      }
+    }
+    else if (/(列出|显示|查看)\s*(所有)?\s*幻灯[片页]/i.test(cmd)) {
+      const slides = await getSlides();
+      const info = slides.map((s, i) => `  第${i+1}页: id=${s.id}`).join("\n");
+      log({ level: "info", message: `共 ${slides.length} 页:\n${info}`, timestamp: Date.now() });
+    }
+    else if (/(列出|显示|查看)\s*(所有)?\s*形状/i.test(cmd)) {
+      if (currentSlideId) {
+        const shapes = await getShapesOnSlide(currentSlideId);
+        const list = shapes.map((s) => `  ${s.name || "未命名"} (${s.type})`).join("\n");
+        log({ level: "info", message: `共 ${shapes.length} 个形状:\n${list}`, timestamp: Date.now() });
+      }
+    }
+    else if (/帮助|help/i.test(cmd)) {
+      log({ level: "info", message: `📋 支持的命令:
+  形状: 添加矩形|添加圆形|添加三角形|添加文本框 "内容"
+        所有形状设为蓝色|填充形状 "名称" 红色
+  图表: 添加柱状图|添加饼图|添加表格
+  幻灯片: 添加幻灯片 [标题为 "xxx"]|删掉第N页|删掉当前页
+          移动第N页到第M页|复制当前页|设置标题为 "xxx"
+          设置背景 蓝色|列出幻灯片|列出形状`, timestamp: Date.now() });
+    }
+
     else {
       log({ level: "warn", message: `Unknown command: "${cmd}". Type "help" for available commands.`, timestamp: Date.now() });
     }
@@ -304,6 +502,13 @@ function getColorHex(name: string): string {
 
 async function handleQuickAction(action: string): Promise<void> {
   log({ level: "info", message: `Quick action: ${action}`, timestamp: Date.now() });
+
+  // Always refresh current slide before executing
+  try {
+    const active = await getSelectedSlide();
+    if (active) currentSlideId = active.id;
+  } catch { /* ignore */ }
+
   try {
     switch (action) {
       case "listShapes": {
@@ -412,6 +617,32 @@ async function handleQuickAction(action: string): Promise<void> {
   }
 }
 
+// ── AI Badge ──────────────────────────────────────────────────────
+
+function updateAiBadge(): void {
+  if (aiEnabled) {
+    aiBadge.className = "";
+    aiBadge.title = "AI Mode ON — Click to disable";
+    aiStatusText.className = "ai-status-on";
+    aiStatusText.textContent = "AI ON";
+  } else {
+    aiBadge.className = "ai-off";
+    aiBadge.title = "AI Mode OFF — Click to enable";
+    aiStatusText.className = "ai-status-off";
+    aiStatusText.textContent = "AI OFF";
+  }
+}
+
+function updateApiKeyStatus(): void {
+  if (hasApiKey()) {
+    apiKeyStatus.className = "key-saved";
+    apiKeyStatus.textContent = "✓ Saved";
+  } else {
+    apiKeyStatus.className = "key-missing";
+    apiKeyStatus.textContent = "Not set";
+  }
+}
+
 // ── Initialize ────────────────────────────────────────────────────
 
 async function init(): Promise<void> {
@@ -440,10 +671,54 @@ async function init(): Promise<void> {
     log({ level: "info", message: `📁 ${info.title} — ${info.slideCount} slide(s)`, timestamp: Date.now() });
     log({ level: "info", message: 'Ready. Type a command or use Quick Actions below. Type "help" for commands.', timestamp: Date.now() });
 
-    // Register event handlers
-    await registerEventHandlers((entry) => log(entry));
+    // Register event handlers — updates currentSlideId on slide change
+    await registerEventHandlers(
+      (entry) => log(entry),
+      (newSlideId) => {
+        currentSlideId = newSlideId;
+      }
+    );
 
     // ── Bind UI Events ────────────────────────────────────────────
+
+    // API Key toggle
+    apiKeyToggle.addEventListener("click", () => {
+      const isVisible = apiKeyBody.style.display !== "none";
+      apiKeyBody.style.display = isVisible ? "none" : "block";
+    });
+
+    // API Key save
+    apiKeySave.addEventListener("click", () => {
+      const key = apiKeyInput.value.trim();
+      if (key) {
+        setApiKey(key);
+        apiKeyInput.value = "";
+        apiKeyBody.style.display = "none";
+        aiEnabled = true;
+        updateAiBadge();
+        updateApiKeyStatus();
+        log({ level: "success", message: "🔑 API key saved. AI mode ON.", timestamp: Date.now() });
+      }
+    });
+
+    // Restore saved key if previously set
+    if (hasApiKey()) {
+      aiEnabled = true;
+    }
+    updateAiBadge();
+    updateApiKeyStatus();
+
+    // AI badge toggle
+    aiBadge.addEventListener("click", () => {
+      if (!hasApiKey()) {
+        log({ level: "warn", message: "Set your DeepSeek API key first (🔑 API Settings).", timestamp: Date.now() });
+        apiKeyBody.style.display = "block";
+        return;
+      }
+      aiEnabled = !aiEnabled;
+      updateAiBadge();
+      log({ level: "info", message: aiEnabled ? "🧠 AI mode ON — natural language commands enabled" : "📋 AI mode OFF — using regex commands", timestamp: Date.now() });
+    });
 
     // Send button
     sendBtn.addEventListener("click", async () => {
