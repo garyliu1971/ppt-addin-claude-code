@@ -58,6 +58,8 @@ function log(entry: LogEntry): void {
 }
 
 function addHistoryEntry(entry: LogEntry): void {
+  // command-history div removed in new layout — log goes to output-content only
+  if (!commandHistory) return;
   const div = document.createElement("div");
   div.className = `command-entry ${entry.level === "error" ? "error" : "response"}`;
   div.textContent = entry.message;
@@ -83,12 +85,14 @@ async function executeCommand(input: string): Promise<void> {
     if (active) currentSlideId = active.id;
   } catch { /* ignore */ }
 
-  // Add user command to history
-  const userDiv = document.createElement("div");
-  userDiv.className = "command-entry user";
-  userDiv.textContent = "🧠 " + cmd;
-  commandHistory.appendChild(userDiv);
-  commandHistory.scrollTop = commandHistory.scrollHeight;
+  // Add user command to history (skip if command-history removed)
+  if (commandHistory) {
+    const userDiv = document.createElement("div");
+    userDiv.className = "command-entry user";
+    userDiv.textContent = "🧠 " + cmd;
+    commandHistory.appendChild(userDiv);
+    commandHistory.scrollTop = commandHistory.scrollHeight;
+  }
 
   // ── AI MODE ────────────────────────────────────────────────────
   if (aiEnabled && hasApiKey()) {
@@ -166,8 +170,8 @@ async function executeCommand(input: string): Promise<void> {
         log({ level: "warn", message: "Select a slide first, then specify a color.", timestamp: Date.now() });
       }
     }
-    else if (/add (a |an )?(\w+) shape/i.test(cmd)) {
-      const shapeMatch = cmd.match(/add (a |an )?(\w+) shape/i);
+    else if (/add (a |an )?(rectangle|oval|triangle|diamond|arrow|heart|star5|circle|square)( shape)?/i.test(cmd)) {
+      const shapeMatch = cmd.match(/add (a |an )?(rectangle|oval|triangle|diamond|arrow|heart|star5|circle|square)( shape)?/i);
       const shapeType = shapeMatch![2];
       const colorMatch = cmd.match(/(blue|red|green|yellow|orange|purple|pink)/i);
 
@@ -378,7 +382,7 @@ async function executeCommand(input: string): Promise<void> {
     else if (/help/i.test(cmd)) {
       log({ level: "info", message: `Available commands:
   SHAPES:
-• add [rectangle|oval|triangle|diamond|arrow|heart|star5] shape [color]
+• add [rectangle|oval|triangle|diamond|arrow|heart|star5|circle|square] [shape] [color]
 • add text box "your text"
 • make all shapes [color]
 • fill shape "name" with [color]
@@ -862,6 +866,15 @@ async function init(): Promise<void> {
         const action = btn.dataset.action;
         if (action) handleQuickAction(action);
       });
+    });
+
+    // Quick actions toggle
+    const actionsToggle = document.getElementById("actions-toggle")!;
+    const actionsGrid = document.getElementById("actions-grid")!;
+    actionsToggle.addEventListener("click", () => {
+      const show = actionsGrid.style.display === "none";
+      actionsGrid.style.display = show ? "grid" : "none";
+      actionsToggle.textContent = show ? "⚡ Quick Actions ▴" : "⚡ Quick Actions ▾";
     });
 
     // Confirm bar buttons

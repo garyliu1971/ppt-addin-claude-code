@@ -17,76 +17,54 @@
       </div>
     </header>
 
-    <!-- API Key Section (collapsible) -->
     <section id="api-key-section">
-      <div id="api-key-toggle" title="Configure AI API Key">
-        <span>🔑 API Settings</span>
-        <span id="api-key-status"></span>
-      </div>
+      <div id="api-key-toggle">🔑 API Settings <span id="api-key-status"></span></div>
       <div id="api-key-body" style="display:none">
-        <input
-          id="api-key-input"
-          type="password"
-          placeholder="Enter your DeepSeek API key (sk-...)"
-        />
+        <input id="api-key-input" type="password" placeholder="DeepSeek API key (sk-...)" />
         <button id="api-key-save">Save</button>
-        <small style="color:#64748b;display:block;margin-top:4px">
-          Uses <b>DeepSeek API</b> (OpenAI-compatible).<br/>
-          Get a key at <a href="https://platform.deepseek.com" target="_blank">platform.deepseek.com</a>
-        </small>
       </div>
     </section>
 
-    <!-- Confirm Bar (shown after AI preview) -->
     <section id="confirm-bar" style="display:none">
       <span id="confirm-count"></span>
       <button id="confirm-apply" class="confirm-btn apply">✅ Apply</button>
       <button id="confirm-cancel" class="confirm-btn cancel">❌ Cancel</button>
     </section>
 
-    <!-- Command Input Area -->
+    <!-- OUTPUT: main log area, takes all remaining space -->
+    <section id="output-section">
+      <pre id="output-content">Ready. Select a slide to begin.</pre>
+    </section>
+
+    <!-- QUICK ACTIONS: collapsible -->
+    <section id="quick-actions">
+      <div id="actions-toggle">⚡ Quick Actions ▾</div>
+      <div id="actions-grid" style="display:none">
+        <button class="action-btn" data-action="listShapes">📐 Shapes</button>
+        <button class="action-btn" data-action="listSlides">📑 Slides</button>
+        <button class="action-btn" data-action="listMasters">🎨 Masters</button>
+        <button class="action-btn" data-action="listLayouts">📋 Layouts</button>
+        <button class="action-btn" data-action="getTheme">🌈 Theme</button>
+        <button class="action-btn" data-action="modifySelectedShape">✏️ Modify</button>
+        <button class="action-btn" data-action="insertTable">📊 Table</button>
+        <button class="action-btn" data-action="insertChart">📈 Chart</button>
+        <button class="action-btn" data-action="setSlideBackground">🎨 BG</button>
+        <button class="action-btn" data-action="autoLayout">🔲 Arrange</button>
+        <button class="action-btn" data-action="listThemes">🎨 Themes</button>
+        <button class="action-btn" data-action="applyDesign">🎨 Design</button>
+      </div>
+    </section>
+
+    <!-- COMMAND INPUT: fixed at bottom -->
     <section id="command-section">
-      <div id="command-history"></div>
       <div id="command-input-area">
-        <textarea
-          id="command-input"
-          placeholder="Describe what you want to do with your slides..."
-          rows="2"
-        ></textarea>
-        <button id="send-btn" title="Execute command (Ctrl+Enter)">▶ Send</button>
+        <textarea id="command-input" placeholder="Describe what you want..." rows="1"></textarea>
+        <button id="send-btn" title="Ctrl+Enter">▶</button>
       </div>
       <div id="command-footer">
-        <button id="clear-history-btn" title="Clear AI conversation context">🗑 Clear Context</button>
+        <button id="clear-history-btn">🗑 Clear</button>
         <span id="history-count" style="display:none"></span>
       </div>
-      <div id="command-hints">
-        <small>Try: "Make all shapes blue" | "Add a bar chart on slide 2" | "Apply the third layout to this slide"</small>
-      </div>
-    </section>
-
-    <!-- Quick Action Buttons -->
-    <section id="quick-actions">
-      <h3>⚡ Quick Actions</h3>
-      <div class="action-grid">
-        <button class="action-btn" data-action="listShapes">📐 List All Shapes</button>
-        <button class="action-btn" data-action="listSlides">📑 List Slides</button>
-        <button class="action-btn" data-action="listMasters">🎨 List Masters</button>
-        <button class="action-btn" data-action="listLayouts">📋 List Layouts</button>
-        <button class="action-btn" data-action="getTheme">🌈 Get Theme</button>
-        <button class="action-btn" data-action="modifySelectedShape">✏️ Modify Selected Shape</button>
-        <button class="action-btn" data-action="insertTable">📊 Insert Table</button>
-        <button class="action-btn" data-action="insertChart">📈 Insert Chart</button>
-        <button class="action-btn" data-action="setSlideBackground">🎨 Set Background</button>
-        <button class="action-btn" data-action="autoLayout">🔲 Auto Arrange</button>
-        <button class="action-btn" data-action="listThemes">🎨 List Themes</button>
-        <button class="action-btn" data-action="applyDesign">🎨 Apply Design</button>
-      </div>
-    </section>
-
-    <!-- Output Area -->
-    <section id="output-section">
-      <h3>📋 Output</h3>
-      <pre id="output-content">Ready. Select a slide to begin.</pre>
     </section>
   </div>
 </body>

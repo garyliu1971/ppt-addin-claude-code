@@ -169,40 +169,13 @@ body {
   background: #5a6fd6;
 }
 
-/* ========== Command Section ========== */
+/* ========== Command Section (bottom bar) ========== */
 #command-section {
   background: #fff;
   border-radius: 10px;
-  padding: 10px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
-}
-
-#command-history {
-  max-height: 120px;
-  overflow-y: auto;
-  margin-bottom: 8px;
-}
-
-.command-entry {
-  padding: 4px 8px;
-  margin-bottom: 4px;
-  border-radius: 6px;
-  font-size: 12px;
-}
-
-.command-entry.user {
-  background: #ede9fe;
-  color: #5b21b6;
-}
-
-.command-entry.response {
-  background: #f0fdf4;
-  color: #166534;
-}
-
-.command-entry.error {
-  background: #fef2f2;
-  color: #991b1b;
+  padding: 8px 10px;
+  box-shadow: 0 -1px 4px rgba(0,0,0,0.05);
+  flex-shrink: 0;
 }
 
 #command-input-area {
@@ -212,75 +185,51 @@ body {
 
 #command-input {
   flex: 1;
-  padding: 8px 10px;
+  padding: 6px 10px;
   border: 1.5px solid #e2e8f0;
   border-radius: 8px;
   font-size: 12px;
   font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
   resize: none;
   outline: none;
-  transition: border-color 0.2s;
 }
 
 #command-input:focus {
   border-color: #667eea;
-  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.15);
 }
 
 #send-btn {
-  padding: 8px 14px;
+  padding: 6px 12px;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: #fff;
   border: none;
   border-radius: 8px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  white-space: nowrap;
-  transition: opacity 0.2s, transform 0.1s;
 }
 
-#send-btn:hover {
-  opacity: 0.9;
-}
-
-#send-btn:active {
-  transform: scale(0.96);
-}
-
-#command-hints {
-  margin-top: 6px;
-  text-align: center;
-}
-
-#command-hints small {
-  color: #94a3b8;
-  font-size: 10px;
-}
+#send-btn:hover { opacity: 0.9; }
+#send-btn:active { transform: scale(0.95); }
 
 #command-footer {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 6px;
+  margin-top: 4px;
 }
 
 #clear-history-btn {
-  padding: 3px 10px;
+  padding: 2px 8px;
   background: transparent;
   border: 1px solid #e2e8f0;
-  border-radius: 6px;
+  border-radius: 5px;
   font-size: 10px;
   color: #94a3b8;
   cursor: pointer;
-  transition: all 0.15s;
 }
 
-#clear-history-btn:hover {
-  background: #fef2f2;
-  border-color: #fca5a5;
-  color: #ef4444;
-}
+#clear-history-btn:hover { background: #fef2f2; color: #ef4444; }
 
 #history-count {
   font-size: 10px;
@@ -288,81 +237,71 @@ body {
   font-weight: 600;
 }
 
-/* ========== Quick Actions ========== */
+/* ========== Quick Actions (collapsible) ========== */
 #quick-actions {
   background: #fff;
   border-radius: 10px;
-  padding: 10px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  padding: 6px 10px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  flex-shrink: 0;
 }
 
-#quick-actions h3,
-#output-section h3 {
-  font-size: 12px;
+#actions-toggle {
+  font-size: 11px;
   font-weight: 600;
-  color: #475569;
-  margin-bottom: 8px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  color: #667eea;
+  cursor: pointer;
+  user-select: none;
 }
 
-.action-grid {
+#actions-toggle:hover { color: #764ba2; }
+
+#actions-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 4px;
+  margin-top: 6px;
 }
 
 .action-btn {
-  padding: 7px 10px;
+  padding: 4px 6px;
   background: #f1f5f9;
   border: 1px solid #e2e8f0;
-  border-radius: 7px;
-  font-size: 11px;
+  border-radius: 5px;
+  font-size: 10px;
   font-weight: 500;
   color: #334155;
   cursor: pointer;
   text-align: left;
-  transition: all 0.15s;
 }
 
-.action-btn:hover {
-  background: #e2e8f0;
-  border-color: #cbd5e1;
-}
+.action-btn:hover { background: #e2e8f0; }
 
-.action-btn:active {
-  background: #cbd5e1;
-}
-
-/* ========== Output Section ========== */
+/* ========== Output Section (main log) ========== */
 #output-section {
   flex: 1;
-  background: #1e1e2e;
+  background: #fff;
   border-radius: 10px;
-  padding: 10px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  padding: 8px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  min-height: 0;
-}
-
-#output-section h3 {
-  color: #a1a1aa;
 }
 
 #output-content {
   flex: 1;
   margin: 0;
-  padding: 8px;
-  background: #111118;
-  color: #4ade80;
+  padding: 8px 10px;
+  background: #f8fafc;
+  color: #334155;
   border-radius: 6px;
   font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
   font-size: 11px;
-  line-height: 1.6;
+  line-height: 1.55;
   overflow-y: auto;
   white-space: pre-wrap;
-  word-break: break-all;
+  word-break: break-word;
 }
 
 /* ========== Confirm Bar ========== */
