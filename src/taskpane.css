@@ -1,0 +1,237 @@
+/* ========== Reset & Base ========== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: "Segoe UI", "SF Pro Text", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 13px;
+  color: #1a1a2e;
+  background: #f0f2f5;
+  overflow-x: hidden;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 12px;
+  gap: 10px;
+}
+
+/* ========== Header ========== */
+#header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+
+#header h1 {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+}
+
+#status-indicator {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-weight: 600;
+}
+
+.status-connected {
+  background: #4ade80;
+  color: #14532d;
+}
+
+.status-disconnected {
+  background: #f87171;
+  color: #7f1d1d;
+}
+
+/* ========== Command Section ========== */
+#command-section {
+  background: #fff;
+  border-radius: 10px;
+  padding: 10px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+#command-history {
+  max-height: 120px;
+  overflow-y: auto;
+  margin-bottom: 8px;
+}
+
+.command-entry {
+  padding: 4px 8px;
+  margin-bottom: 4px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.command-entry.user {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
+.command-entry.response {
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.command-entry.error {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+#command-input-area {
+  display: flex;
+  gap: 6px;
+}
+
+#command-input {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 12px;
+  font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+  resize: none;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+#command-input:focus {
+  border-color: #667eea;
+  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.15);
+}
+
+#send-btn {
+  padding: 8px 14px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.2s, transform 0.1s;
+}
+
+#send-btn:hover {
+  opacity: 0.9;
+}
+
+#send-btn:active {
+  transform: scale(0.96);
+}
+
+#command-hints {
+  margin-top: 6px;
+  text-align: center;
+}
+
+#command-hints small {
+  color: #94a3b8;
+  font-size: 10px;
+}
+
+/* ========== Quick Actions ========== */
+#quick-actions {
+  background: #fff;
+  border-radius: 10px;
+  padding: 10px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+#quick-actions h3,
+#output-section h3 {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.action-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.action-btn {
+  padding: 7px 10px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #334155;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s;
+}
+
+.action-btn:hover {
+  background: #e2e8f0;
+  border-color: #cbd5e1;
+}
+
+.action-btn:active {
+  background: #cbd5e1;
+}
+
+/* ========== Output Section ========== */
+#output-section {
+  flex: 1;
+  background: #1e1e2e;
+  border-radius: 10px;
+  padding: 10px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+#output-section h3 {
+  color: #a1a1aa;
+}
+
+#output-content {
+  flex: 1;
+  margin: 0;
+  padding: 8px;
+  background: #111118;
+  color: #4ade80;
+  border-radius: 6px;
+  font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ========== Scrollbar ========== */
+::-webkit-scrollbar {
+  width: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 10px;
+}

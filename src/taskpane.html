@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Claude Code for PowerPoint</title>
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+</head>
+<body>
+  <div id="app">
+    <header id="header">
+      <h1>🤖 Claude Code for PowerPoint</h1>
+      <span id="status-indicator" class="status-disconnected">●</span>
+    </header>
+
+    <!-- Command Input Area -->
+    <section id="command-section">
+      <div id="command-history"></div>
+      <div id="command-input-area">
+        <textarea
+          id="command-input"
+          placeholder="Describe what you want to do with your slides..."
+          rows="2"
+        ></textarea>
+        <button id="send-btn" title="Execute command (Ctrl+Enter)">▶ Send</button>
+      </div>
+      <div id="command-hints">
+        <small>Try: "Make all shapes blue" | "Add a bar chart on slide 2" | "Apply the third layout to this slide"</small>
+      </div>
+    </section>
+
+    <!-- Quick Action Buttons -->
+    <section id="quick-actions">
+      <h3>⚡ Quick Actions</h3>
+      <div class="action-grid">
+        <button class="action-btn" data-action="listShapes">📐 List All Shapes</button>
+        <button class="action-btn" data-action="listSlides">📑 List Slides</button>
+        <button class="action-btn" data-action="listMasters">🎨 List Masters</button>
+        <button class="action-btn" data-action="listLayouts">📋 List Layouts</button>
+        <button class="action-btn" data-action="getTheme">🌈 Get Theme</button>
+        <button class="action-btn" data-action="modifySelectedShape">✏️ Modify Selected Shape</button>
+        <button class="action-btn" data-action="insertTable">📊 Insert Table</button>
+        <button class="action-btn" data-action="insertChart">📈 Insert Chart</button>
+        <button class="action-btn" data-action="setSlideBackground">🎨 Set Background</button>
+      </div>
+    </section>
+
+    <!-- Output Area -->
+    <section id="output-section">
+      <h3>📋 Output</h3>
+      <pre id="output-content">Ready. Select a slide to begin.</pre>
+    </section>
+  </div>
+</body>
+</html>
