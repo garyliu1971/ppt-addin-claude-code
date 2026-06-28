@@ -3,7 +3,7 @@
  * Tries native API first; falls back to shape-based visual representation.
  */
 
-import { runPPT, getSelectedSlide } from "./pptApi";
+import { runPPT, getSelectedSlide, getShapesOnSlide } from "./pptApi";
 
 export type ChartType = "ColumnClustered" | "ColumnStacked" | "BarClustered" | "BarStacked" | "Line" | "LineMarkers" | "Pie" | "Doughnut" | "Area" | "Scatter" | "Bubble";
 export interface ChartData { categories: string[]; series: { name: string; values: number[] }[]; }
@@ -183,4 +183,48 @@ export async function addChart(
     await context.sync();
     return border;
   });
+}
+
+// ── Update Existing Table ────────────────────────────────────────
+
+async function findTableShape(): Promise<PowerPoint.Shape | null> {
+  const slide = await getSelectedSlide();
+  if (!slide) return null;
+  const shapes = await getShapesOnSlide(slide.id);
+  for (const s of shapes) {
+    if ((s.type as string) === "Table" || (s.name || "").toLowerCase().includes("table")) return s;
+  }
+  return null;
+}
+
+export async function upsertTable(data: { headers: string[]; rows: string[][] }): Promise<string> {
+  const existing = await findTableShape();
+  const slide = await getSelectedSlide();
+  if (!slide) throw new Error("No slide selected.");
+
+  if (existing) {
+    return runPPT(async (context) => {
+      const shape = context.presentation.slides.getItem(slide.id).shapes.getItem(existing.id);
+      try {
+        const tbl: any = (shape as any).table;
+        tbl.load("rows/items/cells/items"); await context.sync();
+        for (let c = 0; c < data.headers.length && c < tbl.rows.items[0]?.cells.items.length; c++) {
+          const cell = tbl.rows.items[0].cells.items[c];
+          cell.textFrame.load("textRange"); await context.sync();
+          cell.textFrame.textRange.text = data.headers[c];
+        }
+        for (let r = 0; r < data.rows.length && r + 1 < tbl.rows.items.length; r++) {
+          for (let c = 0; c < data.rows[r].length && c < tbl.rows.items[r + 1]?.cells.items.length; c++) {
+            const cell = tbl.rows.items[r + 1].cells.items[c];
+            cell.textFrame.load("textRange"); await context.sync();
+            cell.textFrame.textRange.text = data.rows[r][c];
+          }
+        }
+        await context.sync();
+        return `Updated existing table with ${data.rows.length} row(s)`;
+      } catch { shape.delete(); await context.sync(); await addTable(data); return "Replaced existing table"; }
+    });
+  }
+  await addTable(data);
+  return `Created new table with ${data.rows.length} row(s)`;
 }

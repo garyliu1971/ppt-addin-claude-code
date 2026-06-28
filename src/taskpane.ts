@@ -14,12 +14,13 @@ import { addShape, addTextBox, setShapeFill, setShapeText, deleteShape, applySty
 import { addTable, addChart, ChartType, ChartData } from "./services/chartTableService";
 import { getMasterDetails, applyLayoutToSlide, findLayoutByName, setSlideBackground, getThemeDetails, addSlide, deleteSlide, getAllLayouts, deleteSlideByIndex, setSlideTitle, moveSlide, duplicateSlide, addSlideWithTitle, getSlidesWithIndex, applyTheme, listAvailableThemes, applyDesignScheme, listDesignSchemes } from "./services/masterLayoutThemeService";
 import { registerEventHandlers, unregisterEventHandlers } from "./services/eventService";
-import { setApiKey, getApiKey, hasApiKey, runAIConversation, executeToolCall, clearApiKey, clearConversationHistory, getHistoryLength } from "./services/aiService";
+import { setApiKey, getApiKey, hasApiKey, runAIConversation, executePendingCalls, clearApiKey, clearConversationHistory, getHistoryLength, PendingCall } from "./services/aiService";
 
 // ── State ─────────────────────────────────────────────────────────
 
 let currentSlideId: string | null = null;
 let aiEnabled: boolean = false;
+let pendingActions: { name: string; args: any; description: string }[] = [];
 
 // ── DOM Elements ──────────────────────────────────────────────────
 
@@ -91,35 +92,47 @@ async function executeCommand(input: string): Promise<void> {
 
   // ── AI MODE ────────────────────────────────────────────────────
   if (aiEnabled && hasApiKey()) {
-    log({ level: "info", message: `🤖 AI processing: "${cmd}"`, timestamp: Date.now() });
+    log({ level: "info", message: `🤖 AI thinking: "${cmd}"`, timestamp: Date.now() });
     sendBtn.disabled = true;
     sendBtn.textContent = "⏳";
 
     try {
-      const result = await runAIConversation(cmd, currentSlideId);
+      // Step 1: Dry run — AI plans but doesn't execute
+      const result = await runAIConversation(cmd, currentSlideId, true);
 
       // Show AI text responses
       for (const text of result.messages) {
         log({ level: "info", message: text, timestamp: Date.now() });
       }
 
-      // Show tool execution results
-      if (result.toolResults.length > 0) {
-        let successCount = 0;
-        for (const r of result.toolResults) {
-          if (r.success) {
-            successCount++;
-            log({ level: "success", message: r.message, timestamp: Date.now() });
-          } else {
-            log({ level: "warn", message: r.message, timestamp: Date.now() });
-          }
+      // Show planned actions summary
+      if (result.pendingCalls.length > 0) {
+        const actions = result.pendingCalls
+          .filter((c: PendingCall) => c.name !== "list_slides" && c.name !== "list_themes" && c.name !== "no_op" && c.name !== "web_search")
+          .map((c: PendingCall) => `  ⏳ ${c.description}`);
+
+        const searchCalls = result.pendingCalls.filter((c: PendingCall) => c.name === "web_search");
+        if (searchCalls.length > 0) {
+          log({ level: "info", message: `🔍 ${searchCalls.length} web search(es) performed`, timestamp: Date.now() });
         }
-        log({ level: "success", message: `✅ ${successCount}/${result.toolResults.length} actions completed`, timestamp: Date.now() });
+
+        if (actions.length > 0) {
+          log({ level: "info", message: `📋 Planned actions:\n${actions.join("\n")}`, timestamp: Date.now() });
+          // Store pending calls and show confirm bar
+          pendingActions = result.pendingCalls;
+          showConfirmBar(result.pendingCalls.length);
+        } else {
+          log({ level: "info", message: "✅ No slide changes needed.", timestamp: Date.now() });
+          sendBtn.disabled = false;
+          sendBtn.textContent = "▶ Send";
+        }
+      } else {
+        log({ level: "info", message: "✅ Done.", timestamp: Date.now() });
+        sendBtn.disabled = false;
+        sendBtn.textContent = "▶ Send";
       }
     } catch (err: any) {
       log({ level: "error", message: `AI error: ${err.message || err}`, timestamp: Date.now() });
-      log({ level: "info", message: 'Falling back to regex commands. Check API key or disable AI mode.', timestamp: Date.now() });
-    } finally {
       sendBtn.disabled = false;
       sendBtn.textContent = "▶ Send";
     }
@@ -707,6 +720,37 @@ function updateHistoryCount(): void {
   }
 }
 
+// ── Confirm Bar ───────────────────────────────────────────────────
+
+function showConfirmBar(count: number): void {
+  const bar = document.getElementById("confirm-bar")!;
+  const cnt = document.getElementById("confirm-count")!;
+  bar.style.display = "flex";
+  cnt.textContent = `${count} action(s) planned`;
+}
+
+function hideConfirmBar(): void {
+  document.getElementById("confirm-bar")!.style.display = "none";
+  pendingActions = [];
+  sendBtn.disabled = false;
+  sendBtn.textContent = "▶ Send";
+}
+
+async function applyPendingActions(): Promise<void> {
+  if (pendingActions.length === 0) return;
+  const calls = [...pendingActions]; // capture before clearing
+  log({ level: "info", message: "⚡ Executing planned actions...", timestamp: Date.now() });
+  hideConfirmBar();
+
+  const results = await executePendingCalls(calls, currentSlideId);
+  let ok = 0;
+  for (const r of results) {
+    if (r.success) { ok++; log({ level: "success", message: r.message, timestamp: Date.now() }); }
+    else { log({ level: "warn", message: r.message, timestamp: Date.now() }); }
+  }
+  log({ level: "success", message: `✅ ${ok}/${results.length} actions applied`, timestamp: Date.now() });
+}
+
 // ── Initialize ────────────────────────────────────────────────────
 
 async function init(): Promise<void> {
@@ -818,6 +862,13 @@ async function init(): Promise<void> {
         const action = btn.dataset.action;
         if (action) handleQuickAction(action);
       });
+    });
+
+    // Confirm bar buttons
+    document.getElementById("confirm-apply")!.addEventListener("click", applyPendingActions);
+    document.getElementById("confirm-cancel")!.addEventListener("click", () => {
+      log({ level: "info", message: "❌ Cancelled.", timestamp: Date.now() });
+      hideConfirmBar();
     });
 
   } catch (err: any) {

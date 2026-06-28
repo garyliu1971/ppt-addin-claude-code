@@ -365,6 +365,59 @@ body {
   word-break: break-all;
 }
 
+/* ========== Confirm Bar ========== */
+#confirm-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #fefce8;
+  border: 1.5px solid #facc15;
+  border-radius: 10px;
+  animation: slideUp 0.3s ease;
+  flex-shrink: 0;
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.confirm-btn {
+  padding: 5px 14px;
+  border: none;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.confirm-btn.apply {
+  background: #16a34a;
+  color: #fff;
+}
+
+.confirm-btn.apply:hover {
+  background: #15803d;
+}
+
+.confirm-btn.cancel {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.confirm-btn.cancel:hover {
+  background: #cbd5e1;
+}
+
+#confirm-count {
+  flex: 1;
+  font-size: 11px;
+  color: #92400e;
+  font-weight: 600;
+}
+
 /* ========== Scrollbar ========== */
 ::-webkit-scrollbar {
   width: 5px;

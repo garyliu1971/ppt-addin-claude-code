@@ -10,7 +10,7 @@ import {
   addShape, addTextBox, setShapeFill, deleteShape, applyStyleToAllShapes,
   detectOverlaps, autoLayoutShapes,
 } from "./shapeService";
-import { addTable, addChart, ChartType, ChartData } from "./chartTableService";
+import { addTable, addChart, upsertTable, ChartType, ChartData } from "./chartTableService";
 import {
   applyLayoutToSlide, findLayoutByName, setSlideBackground,
   addSlide, deleteSlide, deleteSlideByIndex, setSlideTitle,
@@ -174,7 +174,10 @@ async function buildSlideContext(): Promise<string> {
     const slide = await getSelectedSlide();
     let ctx = `Presentation: "${info.title}" | ${info.slideCount} slide(s)\n`;
     if (slide) {
-      ctx += `Current slide: ${slide.id}\n`;
+      // Find the 1-based index of the current slide
+      const slides = await getSlides();
+      const idx = slides.findIndex(s => s.id === slide.id) + 1;
+      ctx += `Current slide: Slide ${idx || "?"} (id: ${slide.id})\n`;
       const shapes = await getShapesOnSlide(slide.id);
       if (shapes.length > 0) {
         ctx += `Shapes (${shapes.length}):\n`;
@@ -190,15 +193,18 @@ async function buildSlideContext(): Promise<string> {
 // ── Multi-turn Conversation ───────────────────────────────────────
 
 export interface ExecResult { success: boolean; message: string; }
+export interface PendingCall { name: string; args: Record<string, any>; description: string; }
 
 export interface AIResult {
   messages: string[];
   toolResults: ExecResult[];
+  pendingCalls: PendingCall[];
 }
 
 export async function runAIConversation(
   userCommand: string,
-  currentSlideId: string | null
+  currentSlideId: string | null,
+  dryRun: boolean = false
 ): Promise<AIResult> {
   if (!apiKey) throw new Error("API key not set.");
 
@@ -209,9 +215,13 @@ Today's date: ${new Date().toISOString().split("T")[0]} (${new Date().toLocaleDa
 Current context: ${await buildSlideContext()}
 
 Rules:
-- web_search may be used at most 2 TIMES TOTAL. If search fails both times, proceed with your own knowledge — do NOT retry.
-- After getting search results (or using your knowledge), IMMEDIATELY create slides using add_table, add_text_box, or add_chart.
-- NEVER call web_search more than twice. After 2 searches, you MUST create slides with whatever data you have.
+- CRITICAL: When operating on MULTIPLE slides in one command, you MUST include "target_slide" (1-based) on EVERY write tool call. Example: set_slide_title({"title":"A","target_slide":1}), set_slide_background({"color":"blue","target_slide":2}).
+- After add_slide, the NEW slide becomes the default. To target the OLD slide, explicitly set target_slide.
+- If unsure which slide is which, call list_slides first.
+- Use your own knowledge. Only web_search for explicit "latest/live/current/today/real-time" requests.
+- add_table updates existing tables automatically. Do NOT delete tables.
+- web_search max 2 times. Then use your own knowledge.
+- When moving slides, plan ALL moves in ONE turn. Each slide can only be moved once.
 - You can call multiple tools per turn.
 - Colors: blue=#4A90D9, red=#E74C3C, green=#2ECC71, yellow=#F1C40F, orange=#E67E22, purple=#9B59B6, pink=#E91E63, black=#333333, white=#FFFFFF.
 - When moving slides, plan ALL moves in ONE turn. Each slide can only be moved once.
@@ -219,14 +229,18 @@ Rules:
 
   const textMessages: string[] = [];
   const toolResults: ExecResult[] = [];
+  const pendingCalls: PendingCall[] = [];
   let searchCount = 0;
   let movedSlides = new Set<string>();
   const MAX = 6;
 
-  // Build messages: system prompt (if fresh) + history + new user command
+  // Build messages: always include current context
   const messages: any[] = [];
   if (conversationHistory.length === 0) {
     messages.push({ role: "system", content: sysPrompt });
+  } else {
+    // Inject current context as a system note so AI doesn't re-ask what's on the slide
+    messages.push({ role: "system", content: `Current: ${await buildSlideContext()}Use your own knowledge. Multi-slide: always use target_slide.` });
   }
   messages.push(...conversationHistory);
   messages.push({ role: "user", content: userCommand });
@@ -254,9 +268,13 @@ Rules:
       let args: any = {};
       try { args = JSON.parse(tc.function.arguments); } catch { /* */ }
 
-      // Hard-enforce max 2 web_search calls + no duplicate slide moves
       let result: ExecResult;
-      if (tc.function.name === "web_search" && searchCount >= 2) {
+      // In dryRun mode, still execute read-only tools so AI gets real data
+      const isReadOnly = tc.function.name === "list_slides" || tc.function.name === "list_themes" ||
+                         tc.function.name === "web_search";
+      if (dryRun && !isReadOnly) {
+        result = { success: true, message: `[Preview] Would call ${tc.function.name}` };
+      } else if (tc.function.name === "web_search" && searchCount >= 2) {
         result = { success: false, message: "⚠️ Maximum 2 web searches reached. Create slides NOW." };
       } else if (tc.function.name === "move_slide" && movedSlides.has(String(args.fromIndex))) {
         result = { success: false, message: `⚠️ Slide ${args.fromIndex} was already moved — cannot move again.` };
@@ -267,23 +285,96 @@ Rules:
       }
 
       toolResults.push(result);
+      pendingCalls.push({ name: tc.function.name, args, description: `${tc.function.name}(${JSON.stringify(args).slice(0, 80)})` });
+
       messages.push({
         role: "tool", tool_call_id: tc.id,
-        content: JSON.stringify({ success: result.success, message: result.message, context: await buildSlideContext() }),
+        content: (dryRun && !isReadOnly)
+          ? JSON.stringify({ success: true, message: `[Preview] Would execute ${tc.function.name}` })
+          : JSON.stringify({ success: result.success, message: result.message, context: dryRun ? "" : await buildSlideContext() }),
       });
     }
   }
 
-  // Save to persistent history (keep last 20 messages to avoid token bloat)
-  conversationHistory = messages.slice(-20);
+  // Save to persistent history — skip in dryRun mode
+  if (!dryRun) {
+    conversationHistory = messages
+      .filter((m: any) => m.role === "user" || m.role === "assistant")
+      .map((m: any) => {
+        if (m.role === "assistant" && m.tool_calls) {
+          const { tool_calls, ...rest } = m;
+          return rest;
+        }
+        return m;
+      })
+      .slice(-16);
+  }
 
-  return { messages: textMessages, toolResults };
+  return { messages: textMessages, toolResults, pendingCalls };
 }
 
 // ── Tool Executor ─────────────────────────────────────────────────
 
+/** Execute a batch of pending calls (called after user confirms) */
+export async function executePendingCalls(
+  calls: PendingCall[],
+  sid: string | null
+): Promise<ExecResult[]> {
+  const results: ExecResult[] = [];
+  let defaultSid = sid;
+  let slideCount = 0;
+
+  // Get initial slide count for tracking new slides
+  try { slideCount = (await getSlides()).length; } catch { /* */ }
+
+  for (const call of calls) {
+    if (call.name === "list_slides" || call.name === "list_themes" || call.name === "no_op" || call.name === "web_search") {
+      results.push({ success: true, message: `[Skipped] ${call.description}` });
+      continue;
+    }
+
+    // Resolve target slide: explicit target_slide arg > defaultSid
+    const targetSid = call.args.target_slide
+      ? await resolveSlideId(call.args.target_slide, defaultSid)
+      : defaultSid;
+
+    const r = await executeToolCall(call.name, call.args, targetSid);
+    results.push(r);
+
+    // After adding a slide, auto-track it as default for subsequent tools
+    if (r.success && (call.name === "add_slide" || call.name === "add_slide_with_title")) {
+      try {
+        const slides = await getSlides();
+        if (slides.length > slideCount) {
+          defaultSid = slides[slides.length - 1].id;
+          slideCount = slides.length;
+        }
+      } catch { /* */ }
+    }
+  }
+  return results;
+}
+
 const CM: Record<string, string> = { blue: "#4A90D9", red: "#E74C3C", green: "#2ECC71", yellow: "#F1C40F", orange: "#E67E22", purple: "#9B59B6", pink: "#E91E63", black: "#333333", white: "#FFFFFF", gray: "#95A5A6" };
 const toHex = (c: string) => CM[c.toLowerCase()] || c;
+
+// ── Slide Resolver ────────────────────────────────────────────────
+
+/** Resolve a 1-based slide index to a slide ID. Returns null for "current". */
+async function resolveSlideId(index: number | undefined, defaultSid: string | null): Promise<string | null> {
+  if (index === undefined || index === null) return defaultSid;
+  try {
+    const slides = await getSlides();
+    const target = slides[index - 1];
+    if (target) return target.id;
+  } catch { /* fall through */ }
+  return defaultSid; // fallback to current if resolution fails
+}
+
+/** Extract target_slide from args and resolve to slide ID */
+async function getTargetSid(args: Record<string, any>, defaultSid: string | null): Promise<string | null> {
+  return resolveSlideId(args.target_slide as number | undefined, defaultSid);
+}
 
 export async function executeToolCall(
   name: string, args: Record<string, any>, sid: string | null
@@ -323,8 +414,8 @@ export async function executeToolCall(
       }
 
       case "add_table":
-        await addTable({ headers: args.headers, rows: args.rows });
-        return { success: true, message: `Added ${args.rows.length + 1}x${args.headers.length} table` };
+        var tr = await upsertTable({ headers: args.headers, rows: args.rows });
+        return { success: true, message: tr };
 
       case "add_chart":
         await addChart(args.chartType as ChartType, { categories: args.categories, series: args.series }, { title: args.title });
