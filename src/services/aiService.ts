@@ -8,12 +8,14 @@ import {
 } from "./pptApi";
 import {
   addShape, addTextBox, setShapeFill, deleteShape, applyStyleToAllShapes,
+  detectOverlaps, autoLayoutShapes,
 } from "./shapeService";
 import { addTable, addChart, ChartType, ChartData } from "./chartTableService";
 import {
   applyLayoutToSlide, findLayoutByName, setSlideBackground,
   addSlide, deleteSlide, deleteSlideByIndex, setSlideTitle,
   moveSlide, duplicateSlide, addSlideWithTitle, getSlidesWithIndex,
+  applyTheme, listAvailableThemes, applyDesignScheme, listDesignSchemes,
 } from "./masterLayoutThemeService";
 
 // ── Config ────────────────────────────────────────────────────────
@@ -24,6 +26,18 @@ try { const s = localStorage.getItem(STORAGE_KEY); if (s) apiKey = s; } catch { 
 
 const API_BASE = "https://api.deepseek.com/v1";
 const MODEL = "deepseek-chat";
+
+// ── Conversation History (persists across commands) ───────────────
+
+let conversationHistory: any[] = [];
+
+export function clearConversationHistory(): void {
+  conversationHistory = [];
+}
+
+export function getHistoryLength(): number {
+  return conversationHistory.length;
+}
 
 export function setApiKey(k: string): void { apiKey = k; try { localStorage.setItem(STORAGE_KEY, k); } catch { /* */ } }
 export function clearApiKey(): void { apiKey = ""; try { localStorage.removeItem(STORAGE_KEY); } catch { /* */ } }
@@ -36,7 +50,7 @@ async function searchWeb(query: string): Promise<string> {
   const q = query.toLowerCase();
 
   // ── Crypto prices: CoinGecko (free, CORS-enabled) ──────────────
-  if (/bitcoin|btc|crypto|ethereum|eth|doge|solana|price|价格/i.test(q)) {
+  if (/\b(bitcoin|btc|crypto|ethereum|eth|doge|dogecoin|solana|sol|ripple|xrp|cardano|ada)\b/i.test(q)) {
     const coinMap: Record<string, string> = {
       bitcoin: "bitcoin", btc: "bitcoin", ethereum: "ethereum", eth: "ethereum",
       doge: "dogecoin", dogecoin: "dogecoin", solana: "solana", sol: "solana",
@@ -117,7 +131,7 @@ async function searchWeb(query: string): Promise<string> {
     } catch { /* try next */ }
   }
 
-  return "Search unavailable. Try a more specific query.";
+  return "⚠️ Web search returned no results. Use your own knowledge about this topic to create the slide content. Do NOT search again — proceed with what you know.";
 }
 
 // ── Tool Definitions ──────────────────────────────────────────────
@@ -144,7 +158,11 @@ const TOOLS: ToolDef[] = [
   { type: "function", function: { name: "move_slide", description: "Move a slide to a new position.", parameters: { type: "object", properties: { fromIndex: { type: "number" }, toIndex: { type: "number" } }, required: ["fromIndex", "toIndex"] } } },
   { type: "function", function: { name: "duplicate_slide", description: "Duplicate the current slide.", parameters: { type: "object", properties: {} } } },
   { type: "function", function: { name: "list_slides", description: "List all slides.", parameters: { type: "object", properties: {} } } },
+  { type: "function", function: { name: "apply_theme", description: "Apply a PowerPoint theme by name. Available themes: Office, Facet, Ion, Organic, Slice, Wisp, Integral, Retrospect, Parallax, Celestial, Gallery, Mesh, Savon, Berlin, Crop, Circuit, Depth, Droplet, Headlines, Metropolitan, View, Wood Type.", parameters: { type: "object", properties: { themeName: { type: "string" } }, required: ["themeName"] } } },
+  { type: "function", function: { name: "apply_design_scheme", description: "Apply a designer color scheme to the current slide. Available: modern dark, ocean blue, forest green, sunset orange, rose gold, clean white, slate gray.", parameters: { type: "object", properties: { schemeName: { type: "string" } }, required: ["schemeName"] } } },
+  { type: "function", function: { name: "list_themes", description: "List all available PowerPoint themes and design schemes.", parameters: { type: "object", properties: {} } } },
   { type: "function", function: { name: "web_search", description: "Search the web for real-time data (sports scores, weather, news, stock prices). Use when you need current information.", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } } },
+  { type: "function", function: { name: "auto_layout", description: "Auto-arrange ALL shapes on the current slide into a neat grid. Detects overlaps and repositions. Use when shapes overlap or user asks to rearrange/format/align shapes.", parameters: { type: "object", properties: { columns: { type: "number", description: "Number of columns (default 3)" } } } } },
   { type: "function", function: { name: "no_op", description: "Use when request cannot be fulfilled.", parameters: { type: "object", properties: { message: { type: "string" } }, required: ["message"] } } },
 ];
 
@@ -185,22 +203,33 @@ export async function runAIConversation(
   if (!apiKey) throw new Error("API key not set.");
 
   const sysPrompt = `You are a PowerPoint AI assistant. Use tools to fulfill requests.
+
+Today's date: ${new Date().toISOString().split("T")[0]} (${new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}). Always use this as the current date.
+
 Current context: ${await buildSlideContext()}
 
 Rules:
-- For real-time data (sports, weather, news, stocks), use web_search FIRST.
-- You can call multiple tools. After each tool you'll see the result.
+- web_search may be used at most 2 TIMES TOTAL. If search fails both times, proceed with your own knowledge — do NOT retry.
+- After getting search results (or using your knowledge), IMMEDIATELY create slides using add_table, add_text_box, or add_chart.
+- NEVER call web_search more than twice. After 2 searches, you MUST create slides with whatever data you have.
+- You can call multiple tools per turn.
 - Colors: blue=#4A90D9, red=#E74C3C, green=#2ECC71, yellow=#F1C40F, orange=#E67E22, purple=#9B59B6, pink=#E91E63, black=#333333, white=#FFFFFF.
-- When done, give a final summary. Do not call tools in the final message.`;
-
-  const messages: any[] = [
-    { role: "system", content: sysPrompt },
-    { role: "user", content: userCommand },
-  ];
+- When moving slides, plan ALL moves in ONE turn. Each slide can only be moved once.
+- When the task is fully complete (slides created), say so in a final message.`;
 
   const textMessages: string[] = [];
   const toolResults: ExecResult[] = [];
+  let searchCount = 0;
+  let movedSlides = new Set<string>();
   const MAX = 6;
+
+  // Build messages: system prompt (if fresh) + history + new user command
+  const messages: any[] = [];
+  if (conversationHistory.length === 0) {
+    messages.push({ role: "system", content: sysPrompt });
+  }
+  messages.push(...conversationHistory);
+  messages.push({ role: "user", content: userCommand });
 
   for (let turn = 0; turn < MAX; turn++) {
     const resp = await fetch(`${API_BASE}/chat/completions`, {
@@ -224,7 +253,19 @@ Rules:
     for (const tc of msg.tool_calls) {
       let args: any = {};
       try { args = JSON.parse(tc.function.arguments); } catch { /* */ }
-      const result = await executeToolCall(tc.function.name, args, currentSlideId);
+
+      // Hard-enforce max 2 web_search calls + no duplicate slide moves
+      let result: ExecResult;
+      if (tc.function.name === "web_search" && searchCount >= 2) {
+        result = { success: false, message: "⚠️ Maximum 2 web searches reached. Create slides NOW." };
+      } else if (tc.function.name === "move_slide" && movedSlides.has(String(args.fromIndex))) {
+        result = { success: false, message: `⚠️ Slide ${args.fromIndex} was already moved — cannot move again.` };
+      } else {
+        if (tc.function.name === "web_search") searchCount++;
+        if (tc.function.name === "move_slide") movedSlides.add(String(args.fromIndex));
+        result = await executeToolCall(tc.function.name, args, currentSlideId);
+      }
+
       toolResults.push(result);
       messages.push({
         role: "tool", tool_call_id: tc.id,
@@ -232,6 +273,9 @@ Rules:
       });
     }
   }
+
+  // Save to persistent history (keep last 20 messages to avoid token bloat)
+  conversationHistory = messages.slice(-20);
 
   return { messages: textMessages, toolResults };
 }
@@ -327,6 +371,33 @@ export async function executeToolCall(
       case "web_search": {
         const r = await searchWeb(args.query);
         return { success: true, message: `🔍 "${args.query}":\n${r}` };
+      }
+
+      case "auto_layout": {
+        if (!sid) return { success: false, message: "No slide selected" };
+        const overlaps = await detectOverlaps(sid);
+        const n = await autoLayoutShapes(sid, args.columns || 3);
+        const msg = overlaps.length > 0
+          ? `Rearranged ${n} shapes (fixed ${overlaps.length} overlap${overlaps.length > 1 ? "s" : ""})`
+          : `Arranged ${n} shapes into grid`;
+        return { success: true, message: msg };
+      }
+
+      case "apply_theme": {
+        const msg = await applyTheme(args.themeName);
+        return { success: true, message: msg };
+      }
+
+      case "apply_design_scheme": {
+        if (!sid) return { success: false, message: "No slide selected" };
+        const msg = await applyDesignScheme(sid, args.schemeName);
+        return { success: true, message: msg };
+      }
+
+      case "list_themes": {
+        const themes = listAvailableThemes();
+        const schemes = listDesignSchemes();
+        return { success: true, message: `Themes (${themes.length}): ${themes.join(", ")}\nDesign Schemes (${schemes.length}): ${schemes.join(", ")}` };
       }
 
       case "no_op":

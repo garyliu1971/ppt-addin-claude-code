@@ -258,6 +258,36 @@ body {
   font-size: 10px;
 }
 
+#command-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 6px;
+}
+
+#clear-history-btn {
+  padding: 3px 10px;
+  background: transparent;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 10px;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+#clear-history-btn:hover {
+  background: #fef2f2;
+  border-color: #fca5a5;
+  color: #ef4444;
+}
+
+#history-count {
+  font-size: 10px;
+  color: #667eea;
+  font-weight: 600;
+}
+
 /* ========== Quick Actions ========== */
 #quick-actions {
   background: #fff;

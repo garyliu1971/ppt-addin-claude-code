@@ -10,11 +10,11 @@
 
 import "./taskpane.css";
 import { LogEntry, ensureOfficeReady, getSlides, getSelectedSlide, getShapesOnSlide, getPresentationInfo } from "./services/pptApi";
-import { addShape, addTextBox, setShapeFill, setShapeText, deleteShape, applyStyleToAllShapes, setShapeGeometry } from "./services/shapeService";
+import { addShape, addTextBox, setShapeFill, setShapeText, deleteShape, applyStyleToAllShapes, setShapeGeometry, autoLayoutShapes } from "./services/shapeService";
 import { addTable, addChart, ChartType, ChartData } from "./services/chartTableService";
-import { getMasterDetails, applyLayoutToSlide, findLayoutByName, setSlideBackground, getThemeDetails, addSlide, deleteSlide, getAllLayouts, deleteSlideByIndex, setSlideTitle, moveSlide, duplicateSlide, addSlideWithTitle, getSlidesWithIndex } from "./services/masterLayoutThemeService";
+import { getMasterDetails, applyLayoutToSlide, findLayoutByName, setSlideBackground, getThemeDetails, addSlide, deleteSlide, getAllLayouts, deleteSlideByIndex, setSlideTitle, moveSlide, duplicateSlide, addSlideWithTitle, getSlidesWithIndex, applyTheme, listAvailableThemes, applyDesignScheme, listDesignSchemes } from "./services/masterLayoutThemeService";
 import { registerEventHandlers, unregisterEventHandlers } from "./services/eventService";
-import { setApiKey, getApiKey, hasApiKey, runAIConversation, executeToolCall, clearApiKey } from "./services/aiService";
+import { setApiKey, getApiKey, hasApiKey, runAIConversation, executeToolCall, clearApiKey, clearConversationHistory, getHistoryLength } from "./services/aiService";
 
 // ── State ─────────────────────────────────────────────────────────
 
@@ -336,9 +336,28 @@ async function executeCommand(input: string): Promise<void> {
         log({ level: "success", message: "Duplicated current slide", timestamp: Date.now() });
       }
     }
-    else if (/show theme/i.test(cmd) || /get theme/i.test(cmd)) {
-      const theme = await getThemeDetails();
-      log({ level: "info", message: `Current theme: ${theme.name}`, timestamp: Date.now() });
+    else if (/应用主题\s+(.+)|apply theme\s+(.+)/i.test(cmd)) {
+      const tMatch = cmd.match(/(?:应用主题|apply theme)\s+(.+)/i);
+      if (tMatch) {
+        const msg = await applyTheme(tMatch[1].trim());
+        log({ level: "success", message: msg, timestamp: Date.now() });
+      }
+    }
+    else if (/应用设计\s+(.+)|design\s+(.+)|设计\s+(.+)/i.test(cmd)) {
+      if (currentSlideId) {
+        const dMatch = cmd.match(/(?:应用设计|design|设计)\s+(.+)/i);
+        if (dMatch) {
+          const msg = await applyDesignScheme(currentSlideId, dMatch[1].trim());
+          log({ level: "success", message: msg, timestamp: Date.now() });
+        }
+      } else {
+        log({ level: "warn", message: "请先选择一个幻灯片", timestamp: Date.now() });
+      }
+    }
+    else if (/list themes|列出主题|主题列表/i.test(cmd)) {
+      const themes = listAvailableThemes();
+      const schemes = listDesignSchemes();
+      log({ level: "info", message: `🎨 主题 (${themes.length}): ${themes.join(", ")}\n🎨 设计方案 (${schemes.length}): ${schemes.join(", ")}`, timestamp: Date.now() });
     }
 
     // ── Info / Help ───────────────────────────────────────────────
@@ -469,6 +488,14 @@ async function executeCommand(input: string): Promise<void> {
         const shapes = await getShapesOnSlide(currentSlideId);
         const list = shapes.map((s) => `  ${s.name || "未命名"} (${s.type})`).join("\n");
         log({ level: "info", message: `共 ${shapes.length} 个形状:\n${list}`, timestamp: Date.now() });
+      }
+    }
+    else if (/(重排|重新排列|自动排列|auto.layout|整理)\s*(形状|所有)?/.test(cmd)) {
+      if (currentSlideId) {
+        const n = await autoLayoutShapes(currentSlideId);
+        log({ level: "success", message: `已自动重排 ${n} 个形状`, timestamp: Date.now() });
+      } else {
+        log({ level: "warn", message: "请先选择一个幻灯片", timestamp: Date.now() });
       }
     }
     else if (/帮助|help/i.test(cmd)) {
@@ -609,6 +636,31 @@ async function handleQuickAction(action: string): Promise<void> {
         }
         break;
       }
+      case "autoLayout": {
+        if (currentSlideId) {
+          const n = await autoLayoutShapes(currentSlideId);
+          log({ level: "success", message: `Auto-arranged ${n} shapes`, timestamp: Date.now() });
+        } else {
+          log({ level: "warn", message: "Select a slide first.", timestamp: Date.now() });
+        }
+        break;
+      }
+      case "listThemes": {
+        const themes = listAvailableThemes();
+        const schemes = listDesignSchemes();
+        log({ level: "info", message: `🎨 Themes: ${themes.join(", ")}`, timestamp: Date.now() });
+        log({ level: "info", message: `🎨 Design Schemes: ${schemes.join(", ")}`, timestamp: Date.now() });
+        break;
+      }
+      case "applyDesign": {
+        if (currentSlideId) {
+          const msg = await applyDesignScheme(currentSlideId, "modern dark");
+          log({ level: "success", message: msg, timestamp: Date.now() });
+        } else {
+          log({ level: "warn", message: "Select a slide first.", timestamp: Date.now() });
+        }
+        break;
+      }
       default:
         log({ level: "warn", message: `Unknown action: ${action}`, timestamp: Date.now() });
     }
@@ -640,6 +692,18 @@ function updateApiKeyStatus(): void {
   } else {
     apiKeyStatus.className = "key-missing";
     apiKeyStatus.textContent = "Not set";
+  }
+}
+
+function updateHistoryCount(): void {
+  const el = document.getElementById("history-count");
+  if (!el) return;
+  const len = getHistoryLength();
+  if (len > 0) {
+    el.style.display = "inline";
+    el.textContent = `🧠 ${Math.floor(len / 2)} msg(s)`;
+  } else {
+    el.style.display = "none";
   }
 }
 
@@ -725,7 +789,18 @@ async function init(): Promise<void> {
       const cmd = commandInput.value;
       commandInput.value = "";
       await executeCommand(cmd);
+      updateHistoryCount();
     });
+
+    // Clear conversation history
+    const clearHistoryBtn = document.getElementById("clear-history-btn") as HTMLButtonElement;
+    const historyCount = document.getElementById("history-count") as HTMLSpanElement;
+    clearHistoryBtn.addEventListener("click", () => {
+      clearConversationHistory();
+      updateHistoryCount();
+      log({ level: "info", message: "🗑 AI conversation context cleared. Starting fresh.", timestamp: Date.now() });
+    });
+    updateHistoryCount();
 
     // Ctrl+Enter to send
     commandInput.addEventListener("keydown", async (e) => {

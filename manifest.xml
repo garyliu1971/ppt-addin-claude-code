@@ -10,15 +10,14 @@
   <Version>1.0.0.0</Version>
   <ProviderName>ClaudeCodePPT</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
-  <DisplayName DefaultValue="Claude Code for PowerPoint" />
-  <Description DefaultValue="AI-powered PowerPoint manipulation — modify shapes, charts, tables, masters, layouts, and themes." />
+  <DisplayName DefaultValue="AI Tool for PowerPoint" />
+  <Description DefaultValue="AI-powered PowerPoint manipulation — modify shapes, charts, tables, masters, layouts, themes." />
 
-  <IconUrl DefaultValue="https://192.168.1.75:3000/assets/icon-32.png" />
-  <HighResolutionIconUrl DefaultValue="https://192.168.1.75:3000/assets/icon-80.png" />
-  <SupportUrl DefaultValue="https://192.168.1.75:3000/support" />
+  <IconUrl DefaultValue="https://localhost:3000/assets/icon-32.png" />
+  <HighResolutionIconUrl DefaultValue="https://localhost:3000/assets/icon-80.png" />
+  <SupportUrl DefaultValue="https://localhost:3000/support" />
 
   <AppDomains>
-    <AppDomain>https://192.168.1.75:3000</AppDomain>
     <AppDomain>https://localhost:3000</AppDomain>
   </AppDomains>
 
@@ -84,23 +83,23 @@
 
     <Resources>
       <bt:Images>
-        <bt:Image id="Icon.16x16" DefaultValue="https://192.168.1.75:3000/assets/icon-16.png" />
-        <bt:Image id="Icon.32x32" DefaultValue="https://192.168.1.75:3000/assets/icon-32.png" />
-        <bt:Image id="Icon.80x80" DefaultValue="https://192.168.1.75:3000/assets/icon-80.png" />
+        <bt:Image id="Icon.16x16" DefaultValue="https://localhost:3000/assets/icon-16.png" />
+        <bt:Image id="Icon.32x32" DefaultValue="https://localhost:3000/assets/icon-32.png" />
+        <bt:Image id="Icon.80x80" DefaultValue="https://localhost:3000/assets/icon-80.png" />
       </bt:Images>
       <bt:Urls>
-        <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://192.168.1.75:3000" />
-        <bt:Url id="Commands.Url" DefaultValue="https://192.168.1.75:3000/commands.html" />
-        <bt:Url id="Taskpane.Url" DefaultValue="https://192.168.1.75:3000/taskpane.html" />
+        <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://localhost:3000" />
+        <bt:Url id="Commands.Url" DefaultValue="https://localhost:3000/commands.html" />
+        <bt:Url id="Taskpane.Url" DefaultValue="https://localhost:3000/taskpane.html" />
       </bt:Urls>
       <bt:ShortStrings>
-        <bt:String id="GetStarted.Title" DefaultValue="Claude Code for PowerPoint" />
-        <bt:String id="CommandsGroup.Label" DefaultValue="Claude Code" />
-        <bt:String id="TaskpaneButton.Label" DefaultValue="Claude Code PPT" />
+        <bt:String id="GetStarted.Title" DefaultValue="AI Tool for PowerPoint" />
+        <bt:String id="CommandsGroup.Label" DefaultValue="AI PPT" />
+        <bt:String id="TaskpaneButton.Label" DefaultValue="AI PPT" />
       </bt:ShortStrings>
       <bt:LongStrings>
-        <bt:String id="GetStarted.Description" DefaultValue="AI-powered assistant to modify shapes, charts, tables, masters, layouts, and themes." />
-        <bt:String id="TaskpaneButton.Tooltip" DefaultValue="Open Claude Code for PowerPoint task pane" />
+        <bt:String id="GetStarted.Description" DefaultValue="AI-powered assistant to modify shapes, charts, tables, themes, and slide designs." />
+        <bt:String id="TaskpaneButton.Tooltip" DefaultValue="Open AI Tool for PowerPoint task pane" />
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>

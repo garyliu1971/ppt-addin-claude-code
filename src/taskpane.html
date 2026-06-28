@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Claude Code for PowerPoint</title>
+  <title>AI Tool for PowerPoint</title>
   <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
 </head>
 <body>
   <div id="app">
     <header id="header">
-      <h1>🤖 Claude Code for PowerPoint</h1>
+      <h1>🤖 AI Tool for PowerPoint</h1>
       <div id="header-right">
         <span id="ai-badge" class="ai-off" title="AI mode OFF">🧠</span>
         <span id="ai-status-text" class="ai-status-off">AI OFF</span>
@@ -48,6 +48,10 @@
         ></textarea>
         <button id="send-btn" title="Execute command (Ctrl+Enter)">▶ Send</button>
       </div>
+      <div id="command-footer">
+        <button id="clear-history-btn" title="Clear AI conversation context">🗑 Clear Context</button>
+        <span id="history-count" style="display:none"></span>
+      </div>
       <div id="command-hints">
         <small>Try: "Make all shapes blue" | "Add a bar chart on slide 2" | "Apply the third layout to this slide"</small>
       </div>
@@ -66,6 +70,9 @@
         <button class="action-btn" data-action="insertTable">📊 Insert Table</button>
         <button class="action-btn" data-action="insertChart">📈 Insert Chart</button>
         <button class="action-btn" data-action="setSlideBackground">🎨 Set Background</button>
+        <button class="action-btn" data-action="autoLayout">🔲 Auto Arrange</button>
+        <button class="action-btn" data-action="listThemes">🎨 List Themes</button>
+        <button class="action-btn" data-action="applyDesign">🎨 Apply Design</button>
       </div>
     </section>
 

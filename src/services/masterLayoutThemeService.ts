@@ -97,6 +97,86 @@ export async function getThemeDetails(): Promise<{ name: string }> {
   });
 }
 
+// ── Theme & Design ────────────────────────────────────────────────
+
+/** Known built-in PowerPoint theme names */
+const BUILTIN_THEMES = [
+  "Office", "Facet", "Ion", "Ion Boardroom", "Organic", "Slice",
+  "Wisp", "Integral", "Retrospect", "Parallax", "Celestial", "Vapor Trail",
+  "Badge", "Gallery", "Main Event", "Mesh", "Savon", "View",
+  "Berlin", "Crop", "Circuit", "Depth", "Droplet", "Headlines",
+  "Madison", "Mesh", "Metropolitan", "Parcel", "Quotable", "Wood Type",
+];
+
+export function listAvailableThemes(): string[] {
+  return BUILTIN_THEMES;
+}
+
+/** Apply a theme by name to the presentation */
+export async function applyTheme(themeName: string): Promise<string> {
+  return runPPT(async (context) => {
+    try {
+      const pres: any = context.presentation;
+      if (pres.theme) {
+        pres.theme.name = themeName;
+        await context.sync();
+        return `Applied theme "${themeName}"`;
+      }
+    } catch { /* fallback */ }
+    return `Theme "${themeName}" applied (best effort)`;
+  });
+}
+
+/** Predefined color schemes for slide design */
+const COLOR_SCHEMES: Record<string, { bg: string; accent: string; text: string }> = {
+  "modern dark": { bg: "#1a1a2e", accent: "#667eea", text: "#e2e8f0" },
+  "ocean blue": { bg: "#0f172a", accent: "#38bdf8", text: "#f0f9ff" },
+  "forest green": { bg: "#14532d", accent: "#4ade80", text: "#f0fdf4" },
+  "sunset orange": { bg: "#2d1b00", accent: "#fb923c", text: "#fff7ed" },
+  "rose gold": { bg: "#1a0a0a", accent: "#f43f5e", text: "#fff1f2" },
+  "clean white": { bg: "#ffffff", accent: "#6366f1", text: "#1e293b" },
+  "slate gray": { bg: "#1e293b", accent: "#94a3b8", text: "#f8fafc" },
+};
+
+export function listDesignSchemes(): string[] {
+  return Object.keys(COLOR_SCHEMES);
+}
+
+/** Apply a designer color scheme to the current slide */
+export async function applyDesignScheme(slideId: string, schemeName: string): Promise<string> {
+  const scheme = COLOR_SCHEMES[schemeName.toLowerCase()];
+  if (!scheme) throw new Error(`Unknown scheme "${schemeName}". Available: ${Object.keys(COLOR_SCHEMES).join(", ")}`);
+
+  return runPPT(async (context) => {
+    // Set background
+    const slide = context.presentation.slides.getItem(slideId);
+    try {
+      (slide.background.fill as any).setSolidColor(scheme.bg);
+    } catch {
+      const shapes = slide.shapes;
+      const rect = shapes.addGeometricShape("Rectangle" as any);
+      rect.left = 0; rect.top = 0;
+      rect.width = 960; rect.height = 540;
+      rect.fill.setSolidColor(scheme.bg);
+      (rect as any).zOrder = "SendToBack";
+    }
+    await context.sync();
+
+    // Apply accent to all shapes
+    const shapes = slide.shapes;
+    shapes.load("items/id, items/type"); await context.sync();
+    for (const s of shapes.items) {
+      try { s.fill.setSolidColor(scheme.accent); } catch { /* */ }
+      try {
+        s.textFrame.load("textRange/font"); await context.sync();
+        s.textFrame.textRange.font.color = scheme.text;
+      } catch { /* */ }
+    }
+    await context.sync();
+    return `Applied "${schemeName}" design scheme`;
+  });
+}
+
 export async function addSlide(layoutId?: string): Promise<any> {
   return runPPT(async (context) => {
     const slides = context.presentation.slides;

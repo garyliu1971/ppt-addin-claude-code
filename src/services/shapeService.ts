@@ -95,3 +95,67 @@ export async function applyStyleToAllShapes(slid: string, style: { fillColor?: s
     return shapes.items.length;
   });
 }
+
+// ── Auto-Layout (detect overlaps, grid arrangement) ──────────────
+
+interface ShapeInfo { id: string; name: string; left: number; top: number; width: number; height: number; }
+
+/** Check if two rectangles overlap */
+function rectsOverlap(a: ShapeInfo, b: ShapeInfo): boolean {
+  return !(a.left + a.width <= b.left || b.left + b.width <= a.left ||
+           a.top + a.height <= b.top || b.top + b.height <= a.top);
+}
+
+/** Detect and report overlapping shapes on a slide */
+export async function detectOverlaps(slid: string): Promise<string[]> {
+  const { getShapesOnSlide } = await import("./pptApi");
+  const shapes = await getShapesOnSlide(slid);
+
+  const infos: ShapeInfo[] = shapes.map(s => ({
+    id: s.id, name: s.name || "unnamed",
+    left: s.left, top: s.top, width: s.width, height: s.height,
+  }));
+
+  const overlaps: string[] = [];
+  for (let i = 0; i < infos.length; i++) {
+    for (let j = i + 1; j < infos.length; j++) {
+      if (rectsOverlap(infos[i], infos[j])) {
+        overlaps.push(`"${infos[i].name}" ↔ "${infos[j].name}"`);
+      }
+    }
+  }
+  return overlaps;
+}
+
+/** Auto-arrange shapes on a slide into a grid */
+export async function autoLayoutShapes(slid: string, columns: number = 3): Promise<number> {
+  const { getShapesOnSlide } = await import("./pptApi");
+  const shapes = await getShapesOnSlide(slid);
+  if (shapes.length === 0) return 0;
+
+  const gap = 20;
+  const margin = 40;
+  const slideW = 960, slideH = 540;
+  const availW = slideW - margin * 2 - gap * (columns - 1);
+  const cellW = availW / columns;
+
+  return runPPT(async (context) => {
+    const slide = context.presentation.slides.getItem(slid);
+    const pptShapes = slide.shapes;
+
+    for (let i = 0; i < shapes.length; i++) {
+      const col = i % columns;
+      const row = Math.floor(i / columns);
+      const cellH = Math.min(shapes[i].height || 80, (slideH - margin * 2) / Math.ceil(shapes.length / columns));
+      const newLeft = margin + col * (cellW + gap);
+      const newTop = margin + row * (cellH + gap);
+
+      const s = pptShapes.getItem(shapes[i].id);
+      s.left = newLeft;
+      s.top = newTop;
+      if (shapes[i].width && shapes[i].width > cellW) s.width = cellW - gap;
+    }
+    await context.sync();
+    return shapes.length;
+  });
+}
