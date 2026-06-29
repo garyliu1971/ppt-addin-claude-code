@@ -229,7 +229,8 @@ Rules:
 - DOCUMENT GENERATION: Slide is 960x540pt (widescreen 16:9). Use add_shape("Rectangle") for header/footer banners. Use add_text_box with precise left/top/width/height for structured layouts. Typical layout: header banner at top=0 (960x50), footer banner at top=500 (960x40), body text at left=60, top=70, width=840, height=410. For dense legal text, fontSize=8 or 9. For normal body, fontSize=10 or 11. For titles, fontSize=14-18 with bold.
 - CRITICAL — CONTENT REQUIRED: When asked to create a "document", "disclaimer", "disclosure", "legal notice", or "report" page, you MUST generate the actual text content and put it in add_text_box or add_rich_text calls. Never create empty slides with just a title. Write real substantive text from your own knowledge. For legal disclaimers, write full multi-paragraph legal text. Each slide should have at least one body text box.
 - RICH TEXT: Use add_rich_text for structured content where headings (bold, 14-18pt) and body paragraphs (normal, 10-11pt) appear together. Example: [{text:"一、版权声明",fontSize:16,bold:true},{text:"本文件...",fontSize:10}]. Use add_text_box for single-style text only.
-- NEVER create duplicate slides with the same title. One slide = one title.
+- NEVER create duplicate slides with the same title. One slide = one title. You can only call add_slide/add_slide_with_title ONCE per unique title per turn.
+- CALL add_slide_with_title ONLY ONCE. Then immediately populate that slide with shapes and text boxes. Do NOT call add_slide multiple times.
 - MULTI-PAGE: Only create slides you have actual content for. Don't pre-create placeholder slides hoping to fill them later. If the text fits on 1-2 slides, only create 1-2 slides. If you need more slides, create a new slide AND immediately fill it with add_text_box in the same turn.
 - When the task is fully complete (slides with actual content created), say so in a final message.`;
 
@@ -238,6 +239,7 @@ Rules:
   const pendingCalls: PendingCall[] = [];
   let searchCount = 0;
   let movedSlides = new Set<string>();
+  const addedSlideTitles = new Set<string>(); // prevent duplicate slide creation
   const MAX = 8;
 
   // Build messages: always include current context
@@ -284,9 +286,12 @@ Rules:
         result = { success: false, message: "⚠️ Maximum 2 web searches reached. Create slides NOW." };
       } else if (tc.function.name === "move_slide" && movedSlides.has(String(args.fromIndex))) {
         result = { success: false, message: `⚠️ Slide ${args.fromIndex} was already moved — cannot move again.` };
+      } else if ((tc.function.name === "add_slide" || tc.function.name === "add_slide_with_title") && addedSlideTitles.has(args.title || "")) {
+        result = { success: false, message: `⚠️ Duplicate slide title "${args.title || "untitled"}" — skipped.` };
       } else {
         if (tc.function.name === "web_search") searchCount++;
         if (tc.function.name === "move_slide") movedSlides.add(String(args.fromIndex));
+        if (tc.function.name === "add_slide" || tc.function.name === "add_slide_with_title") addedSlideTitles.add(args.title || "");
         result = await executeToolCall(tc.function.name, args, currentSlideId);
       }
 
