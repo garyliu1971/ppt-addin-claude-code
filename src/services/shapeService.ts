@@ -32,14 +32,33 @@ export async function addImage(imageUrl: string, opts: ShapeOptions = {}): Promi
 
   return runPPT(async (context) => {
     const shapes = context.presentation.slides.getItem(slide.id).shapes;
-    const img = (shapes as any).addPicture(base64);
-    img.left = opts.left ?? 100; img.top = opts.top ?? 100;
-    if (opts.width) img.width = opts.width;
-    if (opts.height) img.height = opts.height;
-    (img as any).name = `Image_${Date.now()}`;
+    // No native addPicture in PowerPoint JS — use rectangle with picture fill
+    const rect = shapes.addGeometricShape("Rectangle" as any);
+    rect.left = opts.left ?? 100; rect.top = opts.top ?? 100;
+    rect.width = opts.width ?? 300; rect.height = opts.height ?? 200;
+    (rect as any).name = `Image_${Date.now()}`;
+
+    // Try picture fill (runtime API, may not be in types)
+    try {
+      await context.sync();
+      const fill: any = rect.fill;
+      fill.setPictureImage(base64);
+      await context.sync();
+    } catch {
+      // Picture fill failed — add a text label instead
+      const label = shapes.addTextBox(`[Image]\n${imageUrl.slice(0, 50)}...`);
+      label.left = rect.left + 10;
+      label.top = rect.top + rect.height / 2 - 20;
+      label.width = rect.width - 20;
+      label.height = 40;
+      label.textFrame.load("textRange/font"); await context.sync();
+      label.textFrame.textRange.font.size = 9;
+      label.textFrame.textRange.font.color = "#888888";
+    }
+
     await context.sync();
-    img.load("id, name, type, width, height"); await context.sync();
-    return img;
+    rect.load("id, name, type"); await context.sync();
+    return rect;
   });
 }
 
