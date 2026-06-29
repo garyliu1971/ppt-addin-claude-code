@@ -98,3 +98,14 @@ export async function getPresentationInfo(): Promise<{ slideCount: number; title
     return { slideCount: slides.items.length, title: props.title || "Untitled" };
   });
 }
+
+export async function getPageSetup(): Promise<{ width: number; height: number } | null> {
+  return runPPT(async (context) => {
+    // slideWidth/slideHeight in points (1 pt = 1/72 inch)
+    const pres: any = context.presentation;
+    pres.load("slideWidth, slideHeight");
+    await context.sync();
+    if (pres.slideWidth == null) return null;
+    return { width: pres.slideWidth, height: pres.slideHeight };
+  });
+}

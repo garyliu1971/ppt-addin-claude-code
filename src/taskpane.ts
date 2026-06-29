@@ -9,8 +9,8 @@
  */
 
 import "./taskpane.css";
-import { LogEntry, ensureOfficeReady, getSlides, getSelectedSlide, getShapesOnSlide, getPresentationInfo } from "./services/pptApi";
-import { addShape, addTextBox, setShapeFill, setShapeText, deleteShape, applyStyleToAllShapes, setShapeGeometry, autoLayoutShapes } from "./services/shapeService";
+import { LogEntry, ensureOfficeReady, getSlides, getSelectedSlide, getShapesOnSlide, getPresentationInfo, getPageSetup } from "./services/pptApi";
+import { addShape, addTextBox, setShapeFill, setShapeText, deleteShape, applyStyleToAllShapes, setShapeGeometry, setShapeFontSize, autoLayoutShapes } from "./services/shapeService";
 import { addTable, addChart, ChartType, ChartData } from "./services/chartTableService";
 import { getMasterDetails, applyLayoutToSlide, findLayoutByName, setSlideBackground, getThemeDetails, addSlide, deleteSlide, getAllLayouts, deleteSlideByIndex, setSlideTitle, moveSlide, duplicateSlide, addSlideWithTitle, getSlidesWithIndex, applyTheme, listAvailableThemes, applyDesignScheme, listDesignSchemes } from "./services/masterLayoutThemeService";
 import { registerEventHandlers, unregisterEventHandlers } from "./services/eventService";
@@ -217,7 +217,7 @@ async function executeCommand(input: string): Promise<void> {
       }
     }
     else if (/resize shape/i.test(cmd)) {
-      const sizeMatch = cmd.match(/(\d+)\s*[x×]\s*(\d+)/);
+      const sizeMatch = cmd.match(/(\d+)\s*[x×*X]\s*(\d+)/);
       if (sizeMatch && currentSlideId) {
         const shapes = await getShapesOnSlide(currentSlideId);
         // Resize the most recently added shape
@@ -228,6 +228,49 @@ async function executeCommand(input: string): Promise<void> {
             height: parseInt(sizeMatch[2]),
           });
           log({ level: "success", message: `Resized shape to ${sizeMatch[1]}x${sizeMatch[2]}`, timestamp: Date.now() });
+        } else {
+          log({ level: "warn", message: "No shapes on current slide.", timestamp: Date.now() });
+        }
+      } else if (!sizeMatch) {
+        log({ level: "warn", message: "Usage: resize shape WxH  (e.g. resize shape 200x150)", timestamp: Date.now() });
+      }
+    }
+    else if (/(set )?(font|text) size\s*(\d+)/i.test(cmd)) {
+      const fsMatch = cmd.match(/(?:set )?(?:font|text) size\s*(\d+)/i);
+      const fontSize = parseInt(fsMatch![1]);
+      if (currentSlideId) {
+        const shapes = await getShapesOnSlide(currentSlideId);
+        if (shapes.length === 0) {
+          log({ level: "warn", message: "No shapes on current slide.", timestamp: Date.now() });
+        } else {
+          const target = shapes[shapes.length - 1];
+          await setShapeFontSize(target.id, currentSlideId, fontSize);
+          log({ level: "success", message: `Set font size to ${fontSize}pt on "${target.name || "unnamed"}"`, timestamp: Date.now() });
+        }
+      } else {
+        log({ level: "warn", message: "Select a slide first.", timestamp: Date.now() });
+      }
+    }
+    else if (/bold\s*text/i.test(cmd)) {
+      if (currentSlideId) {
+        const shapes = await getShapesOnSlide(currentSlideId);
+        if (shapes.length === 0) {
+          log({ level: "warn", message: "No shapes on current slide.", timestamp: Date.now() });
+        } else {
+          const target = shapes[shapes.length - 1];
+          await setShapeText(target.id, currentSlideId, "", { bold: true });
+          log({ level: "success", message: `Set bold on "${target.name || "unnamed"}"`, timestamp: Date.now() });
+        }
+      }
+    }
+    else if (/set (text|font) color/i.test(cmd)) {
+      const colorMatch = cmd.match(/(blue|red|green|yellow|orange|purple|pink|black|white|gray)/i);
+      if (colorMatch && currentSlideId) {
+        const shapes = await getShapesOnSlide(currentSlideId);
+        if (shapes.length > 0) {
+          const target = shapes[shapes.length - 1];
+          await setShapeText(target.id, currentSlideId, "", { fontColor: getColorHex(colorMatch[1]) });
+          log({ level: "success", message: `Set text color to ${colorMatch[1]}`, timestamp: Date.now() });
         }
       }
     }
@@ -387,8 +430,10 @@ async function executeCommand(input: string): Promise<void> {
 • make all shapes [color]
 • fill shape "name" with [color]
 • resize shape W×H
-• delete shape "name"
-  CHARTS & TABLES:
+• delete shape "name"  TEXT:
+• font size N              (e.g. "font size 10")
+• bold text
+• set text color [color]  CHARTS & TABLES:
 • add [bar|column|pie|line|area] chart
 • add table
   SLIDES:
@@ -402,6 +447,7 @@ async function executeCommand(input: string): Promise<void> {
 • set background [color]
   INFO:
 • list slides / shapes / layouts / masters
+• page setup / slide size
 • show theme`, timestamp: Date.now() });
     }
     else if (/list (all )?slides?/i.test(cmd)) {
@@ -427,6 +473,16 @@ async function executeCommand(input: string): Promise<void> {
       const masters = await getMasterDetails();
       const list = masters.map((m) => `  ${m.name} (${m.layoutCount} layouts)`).join("\n");
       log({ level: "info", message: `${masters.length} master(s):\n${list}`, timestamp: Date.now() });
+    }
+    else if (/(page|slide) (setup|size)|页面设置|幻灯片尺寸/i.test(cmd)) {
+      const ps = await getPageSetup();
+      if (ps) {
+        const inchesW = (ps.width / 72).toFixed(1);
+        const inchesH = (ps.height / 72).toFixed(1);
+        log({ level: "info", message: `📐 Slide size: ${ps.width}×${ps.height} pt (${inchesW}×${inchesH} in)`, timestamp: Date.now() });
+      } else {
+        log({ level: "warn", message: "Page setup info not available (requires Office 365).", timestamp: Date.now() });
+      }
     }
 
     // ── Chinese Commands (中文命令) ────────────────────────────────
@@ -515,14 +571,47 @@ async function executeCommand(input: string): Promise<void> {
         log({ level: "warn", message: "请先选择一个幻灯片", timestamp: Date.now() });
       }
     }
+    else if (/(字体大小|字号)\s*(\d+)/i.test(cmd)) {
+      const fsMatch = cmd.match(/(?:字体大小|字号)\s*(\d+)/i);
+      if (fsMatch && currentSlideId) {
+        const shapes = await getShapesOnSlide(currentSlideId);
+        if (shapes.length > 0) {
+          const fontSize = parseInt(fsMatch[1]);
+          await setShapeFontSize(shapes[shapes.length - 1].id, currentSlideId, fontSize);
+          log({ level: "success", message: `字体大小已设为 ${fontSize}pt`, timestamp: Date.now() });
+        }
+      }
+    }
+    else if (/粗体|加粗|bold/i.test(cmd)) {
+      if (currentSlideId) {
+        const shapes = await getShapesOnSlide(currentSlideId);
+        if (shapes.length > 0) {
+          await setShapeText(shapes[shapes.length - 1].id, currentSlideId, "", { bold: true });
+          log({ level: "success", message: "已设粗体", timestamp: Date.now() });
+        }
+      }
+    }
+    else if (/文字颜色\s*(蓝|红|绿|黄|橙|紫|粉|黑|白|灰)/i.test(cmd)) {
+      const m = cmd.match(/文字颜色\s*(蓝|红|绿|黄|橙|紫|粉|黑|白|灰)/i);
+      if (m && currentSlideId) {
+        const cnColorMap: Record<string, string> = { 蓝:"blue",红:"red",绿:"green",黄:"yellow",橙:"orange",紫:"purple",粉:"pink",黑:"black",白:"white",灰:"gray" };
+        const shapes = await getShapesOnSlide(currentSlideId);
+        if (shapes.length > 0) {
+          await setShapeText(shapes[shapes.length - 1].id, currentSlideId, "", { fontColor: getColorHex(cnColorMap[m[1]] || m[1]) });
+          log({ level: "success", message: `文字颜色已设为${m[1]}`, timestamp: Date.now() });
+        }
+      }
+    }
     else if (/帮助|help/i.test(cmd)) {
       log({ level: "info", message: `📋 支持的命令:
   形状: 添加矩形|添加圆形|添加三角形|添加文本框 "内容"
         所有形状设为蓝色|填充形状 "名称" 红色
+  文字: 字体大小 10|粗体|文字颜色 蓝色
   图表: 添加柱状图|添加饼图|添加表格
   幻灯片: 添加幻灯片 [标题为 "xxx"]|删掉第N页|删掉当前页
           移动第N页到第M页|复制当前页|设置标题为 "xxx"
-          设置背景 蓝色|列出幻灯片|列出形状`, timestamp: Date.now() });
+          设置背景 蓝色|列出幻灯片|列出形状
+          页面设置|幻灯片尺寸`, timestamp: Date.now() });
     }
 
     else {

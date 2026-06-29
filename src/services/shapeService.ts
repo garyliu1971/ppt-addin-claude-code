@@ -7,6 +7,7 @@ import { runPPT, getSelectedSlide } from "./pptApi";
 export interface ShapeOptions {
   left?: number; top?: number; width?: number; height?: number;
   fillColor?: string; lineColor?: string; lineWeight?: number;
+  fontSize?: number;
 }
 
 export async function addShape(geometry: string, opts: ShapeOptions = {}): Promise<any> {
@@ -34,9 +35,17 @@ export async function addTextBox(text: string, opts: ShapeOptions = {}): Promise
     const shapes = context.presentation.slides.getItem(slide.id).shapes;
     const tb = shapes.addTextBox(text);
     tb.left = opts.left ?? 80; tb.top = opts.top ?? 100;
-    tb.width = opts.width ?? 300; tb.height = opts.height ?? 60;
+    tb.width = opts.width ?? 600; tb.height = opts.height ?? 400;
     if (opts.fillColor) tb.fill.setSolidColor(opts.fillColor);
     await context.sync();
+    // Apply font size if specified
+    if (opts.fontSize !== undefined) {
+      try {
+        tb.textFrame.load("textRange"); await context.sync();
+        tb.textFrame.textRange.font.size = opts.fontSize;
+        await context.sync();
+      } catch { /* font may not be available on this shape type */ }
+    }
     return tb;
   });
 }
@@ -64,11 +73,38 @@ export async function setShapeFill(sid: string, slid: string, color: string): Pr
   });
 }
 
-export async function setShapeText(sid: string, slid: string, text: string): Promise<void> {
+export interface TextOptions {
+  fontSize?: number;
+  bold?: boolean;
+  fontName?: string;
+  fontColor?: string;
+}
+
+export async function setShapeText(sid: string, slid: string, text: string, opts?: TextOptions): Promise<void> {
   return runPPT(async (context) => {
     const s = context.presentation.slides.getItem(slid).shapes.getItem(sid);
     s.textFrame.load("textRange"); await context.sync();
     s.textFrame.textRange.text = text; await context.sync();
+    if (opts) {
+      try {
+        if (opts.fontSize !== undefined) s.textFrame.textRange.font.size = opts.fontSize;
+        if (opts.bold !== undefined) s.textFrame.textRange.font.bold = opts.bold;
+        if (opts.fontName) s.textFrame.textRange.font.name = opts.fontName;
+        if (opts.fontColor) s.textFrame.textRange.font.color = opts.fontColor;
+        await context.sync();
+      } catch { /* font props may not be available */ }
+    }
+  });
+}
+
+export async function setShapeFontSize(sid: string, slid: string, fontSize: number): Promise<void> {
+  return runPPT(async (context) => {
+    const s = context.presentation.slides.getItem(slid).shapes.getItem(sid);
+    try {
+      s.textFrame.load("textRange"); await context.sync();
+      s.textFrame.textRange.font.size = fontSize;
+      await context.sync();
+    } catch { /* shape might not have text */ }
   });
 }
 

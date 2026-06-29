@@ -143,7 +143,7 @@ interface ToolDef {
 
 const TOOLS: ToolDef[] = [
   { type: "function", function: { name: "add_shape", description: "Add a geometric shape. Types: Rectangle, Oval, Triangle, Diamond, Arrow, Star5, Heart, Cloud, Sun, Moon, SmileyFace.", parameters: { type: "object", properties: { geometry: { type: "string" }, fillColor: { type: "string" }, left: { type: "number" }, top: { type: "number" }, width: { type: "number" }, height: { type: "number" } }, required: ["geometry"] } } },
-  { type: "function", function: { name: "add_text_box", description: "Add a text box to the current slide.", parameters: { type: "object", properties: { text: { type: "string" }, left: { type: "number" }, top: { type: "number" } }, required: ["text"] } } },
+  { type: "function", function: { name: "add_text_box", description: "Add a text box with full positioning. Use for headers, body text, footers. Slide is typically 960x540pt (widescreen) or 720x540pt (4:3).", parameters: { type: "object", properties: { text: { type: "string" }, left: { type: "number" }, top: { type: "number" }, width: { type: "number" }, height: { type: "number" }, fontSize: { type: "number" } }, required: ["text"] } } },
   { type: "function", function: { name: "modify_all_shapes", description: "Apply a style to all shapes on current slide.", parameters: { type: "object", properties: { fillColor: { type: "string" }, fontSize: { type: "number" } } } } },
   { type: "function", function: { name: "set_shape_fill", description: "Set fill color of a specific shape by name.", parameters: { type: "object", properties: { shapeName: { type: "string" }, color: { type: "string" } }, required: ["shapeName", "color"] } } },
   { type: "function", function: { name: "delete_shape", description: "Delete a shape by name.", parameters: { type: "object", properties: { shapeName: { type: "string" } }, required: ["shapeName"] } } },
@@ -223,8 +223,9 @@ Rules:
 - web_search max 2 times. Then use your own knowledge.
 - When moving slides, plan ALL moves in ONE turn. Each slide can only be moved once.
 - You can call multiple tools per turn.
-- Colors: blue=#4A90D9, red=#E74C3C, green=#2ECC71, yellow=#F1C40F, orange=#E67E22, purple=#9B59B6, pink=#E91E63, black=#333333, white=#FFFFFF.
+- Colors: blue=#4A90D9, red=#E74C3C, green=#2ECC71, yellow=#F1C40F, orange=#E67E22, purple=#9B59B6, pink=#E91E63, black=#333333, white=#FFFFFF, dark navy=#1a1a2e.
 - When moving slides, plan ALL moves in ONE turn. Each slide can only be moved once.
+- DOCUMENT GENERATION: Slide is 960x540pt (widescreen 16:9). Use add_shape("Rectangle") for header/footer banners. Use add_text_box with precise left/top/width/height for structured layouts. Typical layout: header banner at top=0 (960x50), footer banner at top=500 (960x40), body text at left=60, top=70, width=840, height=410. For dense legal text, fontSize=8 or 9. For normal body, fontSize=10 or 11. For titles, fontSize=14-18 with bold.
 - When the task is fully complete (slides created), say so in a final message.`;
 
   const textMessages: string[] = [];
@@ -386,8 +387,8 @@ export async function executeToolCall(
         return { success: true, message: `Added ${args.geometry}` };
 
       case "add_text_box":
-        await addTextBox(args.text, { left: args.left, top: args.top });
-        return { success: true, message: `Added text: "${args.text}"` };
+        await addTextBox(args.text, { left: args.left, top: args.top, width: args.width, height: args.height, fontSize: args.fontSize });
+        return { success: true, message: `Added text: "${args.text.slice(0, 60)}${args.text.length > 60 ? "..." : ""}"` };
 
       case "modify_all_shapes": {
         if (!sid) return { success: false, message: "No slide selected" };
