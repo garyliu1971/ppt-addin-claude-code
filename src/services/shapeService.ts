@@ -73,6 +73,52 @@ export async function setShapeFill(sid: string, slid: string, color: string): Pr
   });
 }
 
+export interface ParagraphSpec {
+  text: string;
+  fontSize?: number;
+  bold?: boolean;
+  fontColor?: string;
+}
+
+export async function addStructuredTextBox(
+  paragraphs: ParagraphSpec[],
+  opts: ShapeOptions = {}
+): Promise<any> {
+  const slide = await getSelectedSlide();
+  if (!slide) throw new Error("No slide selected.");
+
+  // Build full text first
+  const fullText = paragraphs.map(p => p.text).join("\n");
+
+  return runPPT(async (context) => {
+    const shapes = context.presentation.slides.getItem(slide.id).shapes;
+    const tb = shapes.addTextBox(fullText);
+    tb.left = opts.left ?? 80; tb.top = opts.top ?? 100;
+    tb.width = opts.width ?? 600; tb.height = opts.height ?? 400;
+    await context.sync();
+
+    // Apply per-paragraph formatting
+    try {
+      const tr: any = tb.textFrame.textRange;
+      tr.load("paragraphs/items/text, paragraphs/items/font/size, paragraphs/items/font/bold");
+      await context.sync();
+
+      const paraItems = tr.paragraphs.items;
+      for (let i = 0; i < paragraphs.length && i < paraItems.length; i++) {
+        const spec = paragraphs[i];
+        if (spec.fontSize !== undefined) paraItems[i].font.size = spec.fontSize;
+        if (spec.bold !== undefined) paraItems[i].font.bold = spec.bold;
+        if (spec.fontColor) paraItems[i].font.color = spec.fontColor;
+      }
+      await context.sync();
+    } catch {
+      // Paragraph-level API not available — text is still created with default formatting
+    }
+
+    return tb;
+  });
+}
+
 export interface TextOptions {
   fontSize?: number;
   bold?: boolean;

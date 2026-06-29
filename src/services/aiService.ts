@@ -8,7 +8,7 @@ import {
 } from "./pptApi";
 import {
   addShape, addTextBox, setShapeFill, deleteShape, applyStyleToAllShapes,
-  detectOverlaps, autoLayoutShapes,
+  detectOverlaps, autoLayoutShapes, addStructuredTextBox,
 } from "./shapeService";
 import { addTable, addChart, upsertTable, ChartType, ChartData } from "./chartTableService";
 import {
@@ -144,6 +144,7 @@ interface ToolDef {
 const TOOLS: ToolDef[] = [
   { type: "function", function: { name: "add_shape", description: "Add a geometric shape. Types: Rectangle, Oval, Triangle, Diamond, Arrow, Star5, Heart, Cloud, Sun, Moon, SmileyFace.", parameters: { type: "object", properties: { geometry: { type: "string" }, fillColor: { type: "string" }, left: { type: "number" }, top: { type: "number" }, width: { type: "number" }, height: { type: "number" } }, required: ["geometry"] } } },
   { type: "function", function: { name: "add_text_box", description: "Add a text box with full positioning. Use for headers, body text, footers. Slide is typically 960x540pt (widescreen) or 720x540pt (4:3).", parameters: { type: "object", properties: { text: { type: "string" }, left: { type: "number" }, top: { type: "number" }, width: { type: "number" }, height: { type: "number" }, fontSize: { type: "number" } }, required: ["text"] } } },
+  { type: "function", function: { name: "add_rich_text", description: "Add a text box with PER-PARAGRAPH formatting. Each paragraph can have its own fontSize, bold, fontColor. Use for structured content where headings (bold 16pt) and body (normal 10pt) must coexist in one box. Paragraphs array: [{text, fontSize?, bold?, fontColor?}].", parameters: { type: "object", properties: { left: { type: "number" }, top: { type: "number" }, width: { type: "number" }, height: { type: "number" }, paragraphs: { type: "array", items: { type: "object", properties: { text: { type: "string" }, fontSize: { type: "number" }, bold: { type: "boolean" }, fontColor: { type: "string" } }, required: ["text"] } } }, required: ["paragraphs"] } } },
   { type: "function", function: { name: "modify_all_shapes", description: "Apply a style to all shapes on current slide.", parameters: { type: "object", properties: { fillColor: { type: "string" }, fontSize: { type: "number" } } } } },
   { type: "function", function: { name: "set_shape_fill", description: "Set fill color of a specific shape by name.", parameters: { type: "object", properties: { shapeName: { type: "string" }, color: { type: "string" } }, required: ["shapeName", "color"] } } },
   { type: "function", function: { name: "delete_shape", description: "Delete a shape by name.", parameters: { type: "object", properties: { shapeName: { type: "string" } }, required: ["shapeName"] } } },
@@ -226,7 +227,8 @@ Rules:
 - Colors: blue=#4A90D9, red=#E74C3C, green=#2ECC71, yellow=#F1C40F, orange=#E67E22, purple=#9B59B6, pink=#E91E63, black=#333333, white=#FFFFFF, dark navy=#1a1a2e.
 - When moving slides, plan ALL moves in ONE turn. Each slide can only be moved once.
 - DOCUMENT GENERATION: Slide is 960x540pt (widescreen 16:9). Use add_shape("Rectangle") for header/footer banners. Use add_text_box with precise left/top/width/height for structured layouts. Typical layout: header banner at top=0 (960x50), footer banner at top=500 (960x40), body text at left=60, top=70, width=840, height=410. For dense legal text, fontSize=8 or 9. For normal body, fontSize=10 or 11. For titles, fontSize=14-18 with bold.
-- CRITICAL — CONTENT REQUIRED: When asked to create a "document", "disclaimer", "disclosure", "legal notice", or "report" page, you MUST generate the actual text content and put it in add_text_box calls. Never create empty slides with just a title. Write real substantive text from your own knowledge. For legal disclaimers, write full multi-paragraph legal text. Each slide should have at least one body text box.
+- CRITICAL — CONTENT REQUIRED: When asked to create a "document", "disclaimer", "disclosure", "legal notice", or "report" page, you MUST generate the actual text content and put it in add_text_box or add_rich_text calls. Never create empty slides with just a title. Write real substantive text from your own knowledge. For legal disclaimers, write full multi-paragraph legal text. Each slide should have at least one body text box.
+- RICH TEXT: Use add_rich_text for structured content where headings (bold, 14-18pt) and body paragraphs (normal, 10-11pt) appear together. Example: [{text:"一、版权声明",fontSize:16,bold:true},{text:"本文件...",fontSize:10}]. Use add_text_box for single-style text only.
 - NEVER create duplicate slides with the same title. One slide = one title.
 - MULTI-PAGE: Only create slides you have actual content for. Don't pre-create placeholder slides hoping to fill them later. If the text fits on 1-2 slides, only create 1-2 slides. If you need more slides, create a new slide AND immediately fill it with add_text_box in the same turn.
 - When the task is fully complete (slides with actual content created), say so in a final message.`;
@@ -417,6 +419,10 @@ export async function executeToolCall(
       case "add_text_box":
         await addTextBox(args.text, { left: args.left, top: args.top, width: args.width, height: args.height, fontSize: args.fontSize });
         return { success: true, message: `Added text: "${args.text.slice(0, 60)}${args.text.length > 60 ? "..." : ""}"` };
+
+      case "add_rich_text":
+        await addStructuredTextBox(args.paragraphs, { left: args.left, top: args.top, width: args.width, height: args.height });
+        return { success: true, message: `Added rich text: ${args.paragraphs.length} paragraph(s)` };
 
       case "modify_all_shapes": {
         if (!sid) return { success: false, message: "No slide selected" };
