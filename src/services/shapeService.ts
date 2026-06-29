@@ -14,10 +14,16 @@ export async function addImage(imageUrl: string, opts: ShapeOptions = {}): Promi
   const slide = await getSelectedSlide();
   if (!slide) throw new Error("No slide selected.");
 
-  // Fetch image and convert to base64
+  // Fetch image and convert to base64 (try direct, then CORS proxy)
   let base64: string;
   try {
-    const resp = await fetch(imageUrl, { signal: AbortSignal.timeout(10000) });
+    // Try direct fetch first
+    let resp = await fetch(imageUrl, { signal: AbortSignal.timeout(8000) });
+    // Fallback: CORS proxy
+    if (!resp.ok) {
+      const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(imageUrl)}`;
+      resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(8000) });
+    }
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const blob = await resp.blob();
     base64 = await new Promise((resolve, reject) => {
