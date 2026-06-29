@@ -277,26 +277,38 @@ Rules:
       try { args = JSON.parse(tc.function.arguments); } catch { /* */ }
 
       let result: ExecResult;
-      // In dryRun mode, still execute read-only tools so AI gets real data
       const isReadOnly = tc.function.name === "list_slides" || tc.function.name === "list_themes" ||
                          tc.function.name === "web_search";
-      if (dryRun && !isReadOnly) {
-        result = { success: true, message: `[Preview] Would call ${tc.function.name}` };
-      } else if (tc.function.name === "web_search" && searchCount >= 2) {
-        result = { success: false, message: "⚠️ Maximum 2 web searches reached. Create slides NOW." };
-      } else if (tc.function.name === "move_slide" && movedSlides.has(String(args.fromIndex))) {
-        result = { success: false, message: `⚠️ Slide ${args.fromIndex} was already moved — cannot move again.` };
-      } else if ((tc.function.name === "add_slide" || tc.function.name === "add_slide_with_title") && addedSlideTitles.has(args.title || "")) {
-        result = { success: false, message: `⚠️ Duplicate slide title "${args.title || "untitled"}" — skipped.` };
+
+      // ── Dedup: block duplicate add_slide BEFORE dryRun check ──
+      const isSlideAdd = tc.function.name === "add_slide" || tc.function.name === "add_slide_with_title";
+      if (isSlideAdd && addedSlideTitles.has(args.title || "")) {
+        result = { success: false, message: `⚠️ Duplicate slide "${args.title || "untitled"}" skipped.` };
       } else {
-        if (tc.function.name === "web_search") searchCount++;
-        if (tc.function.name === "move_slide") movedSlides.add(String(args.fromIndex));
-        if (tc.function.name === "add_slide" || tc.function.name === "add_slide_with_title") addedSlideTitles.add(args.title || "");
-        result = await executeToolCall(tc.function.name, args, currentSlideId);
+        // Track as used (even in dryRun, to prevent duplicates in planned actions)
+        if (isSlideAdd) addedSlideTitles.add(args.title || "");
+
+        // In dryRun mode, still execute read-only tools so AI gets real data
+        if (dryRun && !isReadOnly) {
+          result = { success: true, message: `[Preview] Would call ${tc.function.name}` };
+        } else if (tc.function.name === "web_search" && searchCount >= 2) {
+          result = { success: false, message: "⚠️ Maximum 2 web searches reached. Create slides NOW." };
+        } else if (tc.function.name === "move_slide" && movedSlides.has(String(args.fromIndex))) {
+          result = { success: false, message: `⚠️ Slide ${args.fromIndex} was already moved — cannot move again.` };
+        } else {
+          if (tc.function.name === "web_search") searchCount++;
+          if (tc.function.name === "move_slide") movedSlides.add(String(args.fromIndex));
+          result = await executeToolCall(tc.function.name, args, currentSlideId);
+        }
       }
 
-      toolResults.push(result);
-      pendingCalls.push({ name: tc.function.name, args, description: `${tc.function.name}(${JSON.stringify(args).slice(0, 80)})` });
+      // Only push to pendingCalls if not a duplicate
+      if (result.success || !result.message.includes("skipped")) {
+        toolResults.push(result);
+        pendingCalls.push({ name: tc.function.name, args, description: `${tc.function.name}(${JSON.stringify(args).slice(0, 80)})` });
+      } else {
+        toolResults.push(result);
+      }
 
       messages.push({
         role: "tool", tool_call_id: tc.id,
