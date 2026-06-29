@@ -331,6 +331,13 @@ export async function executePendingCalls(
   // Get initial slide count for tracking new slides
   try { slideCount = (await getSlides()).length; } catch { /* */ }
 
+  // Remember pre-existing slide IDs so we only clean up NEW empty slides
+  const preExistingIds = new Set<string>();
+  try {
+    const slides = await getSlides();
+    for (const s of slides) preExistingIds.add(s.id);
+  } catch { /* */ }
+
   for (const call of calls) {
     if (call.name === "list_slides" || call.name === "list_themes" || call.name === "no_op" || call.name === "web_search") {
       results.push({ success: true, message: `[Skipped] ${call.description}` });
@@ -357,17 +364,18 @@ export async function executePendingCalls(
     }
   }
 
-  // ── Post-processing: delete empty slides ───────────────────────
+  // ── Post-processing: delete NEW empty slides (don't touch pre-existing) ──
   try {
     const allSlides = await getSlides();
     for (const slide of allSlides) {
+      // Only check slides created during this batch
+      if (preExistingIds.has(slide.id)) continue;
       try {
         const shapes = await getShapesOnSlide(slide.id);
-        // Slide is empty if it has 0-1 shapes (only the default title placeholder)
+        // Slide is empty if it has ≤1 shapes (only the default title placeholder)
         if (shapes.length <= 1) {
           await deleteSlide(slide.id);
-          const idx = results.length;
-          results.push({ success: true, message: `🗑 Removed empty slide (id: ${slide.id})` });
+          results.push({ success: true, message: `🗑 Removed empty new slide` });
         }
       } catch { /* skip if can't check */ }
     }
