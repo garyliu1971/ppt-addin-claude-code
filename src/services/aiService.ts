@@ -226,14 +226,16 @@ Rules:
 - Colors: blue=#4A90D9, red=#E74C3C, green=#2ECC71, yellow=#F1C40F, orange=#E67E22, purple=#9B59B6, pink=#E91E63, black=#333333, white=#FFFFFF, dark navy=#1a1a2e.
 - When moving slides, plan ALL moves in ONE turn. Each slide can only be moved once.
 - DOCUMENT GENERATION: Slide is 960x540pt (widescreen 16:9). Use add_shape("Rectangle") for header/footer banners. Use add_text_box with precise left/top/width/height for structured layouts. Typical layout: header banner at top=0 (960x50), footer banner at top=500 (960x40), body text at left=60, top=70, width=840, height=410. For dense legal text, fontSize=8 or 9. For normal body, fontSize=10 or 11. For titles, fontSize=14-18 with bold.
-- When the task is fully complete (slides created), say so in a final message.`;
+- CRITICAL — CONTENT REQUIRED: When asked to create a "document", "disclaimer", "disclosure", "legal notice", or "report" page, you MUST generate the actual text content and put it in add_text_box calls. Never create empty slides with just a title. Write real substantive text from your own knowledge. For legal disclaimers, write full multi-paragraph legal text. Each slide should have at least one body text box.
+- NEVER create duplicate slides with the same title. One slide = one title.
+- When the task is fully complete (slides with actual content created), say so in a final message.`;
 
   const textMessages: string[] = [];
   const toolResults: ExecResult[] = [];
   const pendingCalls: PendingCall[] = [];
   let searchCount = 0;
   let movedSlides = new Set<string>();
-  const MAX = 6;
+  const MAX = 8;
 
   // Build messages: always include current context
   const messages: any[] = [];
