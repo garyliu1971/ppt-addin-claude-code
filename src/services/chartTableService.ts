@@ -63,31 +63,50 @@ export async function addTable(
       }
     }
 
-    // Fallback: visual table with text boxes
+    // Fallback: visual table with text boxes — looks like a real table
+    // Header row
     for (let c = 0; c < data.headers.length; c++) {
       const tb = shapes.addTextBox(data.headers[c]);
-      tb.left = left + c * colW + 2; tb.top = top + 2;
-      tb.width = colW - 4; tb.height = rowH - 4;
-      tb.fill.setSolidColor("#4472C4");
+      tb.left = left + c * colW + 4; tb.top = top + 4;
+      tb.width = colW - 8; tb.height = rowH - 8;
+      tb.fill.setSolidColor("#1a1a2e");
       tb.textFrame.load("textRange/font"); await context.sync();
       tb.textFrame.textRange.font.color = "#FFFFFF";
       tb.textFrame.textRange.font.bold = true;
-      tb.textFrame.textRange.font.size = 12;
+      tb.textFrame.textRange.font.size = 11;
     }
+    // Data rows
     for (let r = 0; r < data.rows.length; r++) {
+      const isAlt = r % 2 === 1;
       for (let c = 0; c < data.rows[r].length && c < data.headers.length; c++) {
         const tb = shapes.addTextBox(data.rows[r][c]);
-        tb.left = left + c * colW + 2; tb.top = top + (r + 1) * rowH + 2;
-        tb.width = colW - 4; tb.height = rowH - 4;
+        tb.left = left + c * colW + 4; tb.top = top + (r + 1) * rowH + 4;
+        tb.width = colW - 8; tb.height = rowH - 8;
+        if (isAlt) tb.fill.setSolidColor("#F0F0F5");
+        else tb.fill.setSolidColor("#FFFFFF");
         tb.textFrame.load("textRange/font"); await context.sync();
-        tb.textFrame.textRange.font.size = 11;
-        if (r % 2 === 1) tb.fill.setSolidColor("#D9E2F3");
+        tb.textFrame.textRange.font.size = 10;
+        tb.textFrame.textRange.font.color = "#333333";
       }
     }
+    // Grid lines
+    for (let r = 0; r <= totalRows; r++) {
+      const hLine = shapes.addGeometricShape("Rectangle" as any);
+      hLine.left = left; hLine.top = top + r * rowH;
+      hLine.width = opts.width ?? 400; hLine.height = 1;
+      hLine.fill.setSolidColor("#CCCCCC"); hLine.lineFormat.weight = 0;
+    }
+    for (let c = 0; c <= data.headers.length; c++) {
+      const vLine = shapes.addGeometricShape("Rectangle" as any);
+      vLine.left = left + c * colW; vLine.top = top;
+      vLine.width = 1; vLine.height = totalRows * rowH;
+      vLine.fill.setSolidColor("#CCCCCC"); vLine.lineFormat.weight = 0;
+    }
+    // Outer border
     const border = shapes.addGeometricShape("Rectangle" as any);
     border.left = left; border.top = top;
     border.width = opts.width ?? 400; border.height = totalRows * rowH;
-    border.fill.clear(); border.lineFormat.weight = 1;
+    border.fill.clear(); border.lineFormat.color = "#999999"; border.lineFormat.weight = 1.5;
     await context.sync();
     return border;
   });
