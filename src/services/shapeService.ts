@@ -38,11 +38,11 @@ export async function addImage(imageUrl: string, opts: ShapeOptions = {}): Promi
     rect.width = opts.width ?? 300; rect.height = opts.height ?? 200;
     (rect as any).name = `Image_${Date.now()}`;
 
-    // Try picture fill (runtime API, may not be in types)
+    // Try picture fill via setImage (runtime API)
     try {
       await context.sync();
       const fill: any = rect.fill;
-      fill.setPictureImage(base64);
+      fill.setImage(base64);
       await context.sync();
     } catch {
       // Picture fill failed — add a text label instead
