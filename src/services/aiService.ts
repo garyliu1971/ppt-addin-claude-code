@@ -228,6 +228,7 @@ Rules:
 - DOCUMENT GENERATION: Slide is 960x540pt (widescreen 16:9). Use add_shape("Rectangle") for header/footer banners. Use add_text_box with precise left/top/width/height for structured layouts. Typical layout: header banner at top=0 (960x50), footer banner at top=500 (960x40), body text at left=60, top=70, width=840, height=410. For dense legal text, fontSize=8 or 9. For normal body, fontSize=10 or 11. For titles, fontSize=14-18 with bold.
 - CRITICAL — CONTENT REQUIRED: When asked to create a "document", "disclaimer", "disclosure", "legal notice", or "report" page, you MUST generate the actual text content and put it in add_text_box calls. Never create empty slides with just a title. Write real substantive text from your own knowledge. For legal disclaimers, write full multi-paragraph legal text. Each slide should have at least one body text box.
 - NEVER create duplicate slides with the same title. One slide = one title.
+- MULTI-PAGE: Only create slides you have actual content for. Don't pre-create placeholder slides hoping to fill them later. If the text fits on 1-2 slides, only create 1-2 slides. If you need more slides, create a new slide AND immediately fill it with add_text_box in the same turn.
 - When the task is fully complete (slides with actual content created), say so in a final message.`;
 
   const textMessages: string[] = [];
@@ -355,6 +356,23 @@ export async function executePendingCalls(
       } catch { /* */ }
     }
   }
+
+  // ── Post-processing: delete empty slides ───────────────────────
+  try {
+    const allSlides = await getSlides();
+    for (const slide of allSlides) {
+      try {
+        const shapes = await getShapesOnSlide(slide.id);
+        // Slide is empty if it has 0-1 shapes (only the default title placeholder)
+        if (shapes.length <= 1) {
+          await deleteSlide(slide.id);
+          const idx = results.length;
+          results.push({ success: true, message: `🗑 Removed empty slide (id: ${slide.id})` });
+        }
+      } catch { /* skip if can't check */ }
+    }
+  } catch { /* skip cleanup */ }
+
   return results;
 }
 
