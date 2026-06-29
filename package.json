@@ -12,9 +12,8 @@
     "validate": "office-addin-manifest validate manifest.xml",
     "sideload": "office-addin-debugging start manifest.xml"
   },
-  "dependencies": {},
   "devDependencies": {
-    "@types/office-js": "^1.0.377",
+    "@types/office-js": "^1.0.593",
     "@types/office-runtime": "^1.0.35",
     "css-loader": "^6.8.1",
     "file-loader": "^6.2.0",
