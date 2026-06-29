@@ -7,7 +7,7 @@ import {
   getSlides, getSelectedSlide, getShapesOnSlide, getPresentationInfo,
 } from "./pptApi";
 import {
-  addShape, addTextBox, setShapeFill, deleteShape, applyStyleToAllShapes,
+  addShape, addTextBox, addImage, setShapeFill, deleteShape, applyStyleToAllShapes,
   detectOverlaps, autoLayoutShapes, addStructuredTextBox,
 } from "./shapeService";
 import { addTable, addChart, upsertTable, ChartType, ChartData } from "./chartTableService";
@@ -143,6 +143,7 @@ interface ToolDef {
 
 const TOOLS: ToolDef[] = [
   { type: "function", function: { name: "add_shape", description: "Add a geometric shape. Types: Rectangle, Oval, Triangle, Diamond, Arrow, Star5, Heart, Cloud, Sun, Moon, SmileyFace.", parameters: { type: "object", properties: { geometry: { type: "string" }, fillColor: { type: "string" }, left: { type: "number" }, top: { type: "number" }, width: { type: "number" }, height: { type: "number" } }, required: ["geometry"] } } },
+  { type: "function", function: { name: "add_image", description: "Add an image from a URL to the current slide. Use full image URLs (jpg, png, svg, gif).", parameters: { type: "object", properties: { url: { type: "string" }, left: { type: "number" }, top: { type: "number" }, width: { type: "number" }, height: { type: "number" } }, required: ["url"] } } },
   { type: "function", function: { name: "add_text_box", description: "Add a text box with full positioning. Use for headers, body text, footers. Slide is typically 960x540pt (widescreen) or 720x540pt (4:3).", parameters: { type: "object", properties: { text: { type: "string" }, left: { type: "number" }, top: { type: "number" }, width: { type: "number" }, height: { type: "number" }, fontSize: { type: "number" } }, required: ["text"] } } },
   { type: "function", function: { name: "add_rich_text", description: "Add a text box with PER-PARAGRAPH formatting. Each paragraph can have its own fontSize, bold, fontColor. Use for structured content where headings (bold 16pt) and body (normal 10pt) must coexist in one box. Paragraphs array: [{text, fontSize?, bold?, fontColor?}].", parameters: { type: "object", properties: { left: { type: "number" }, top: { type: "number" }, width: { type: "number" }, height: { type: "number" }, paragraphs: { type: "array", items: { type: "object", properties: { text: { type: "string" }, fontSize: { type: "number" }, bold: { type: "boolean" }, fontColor: { type: "string" } }, required: ["text"] } } }, required: ["paragraphs"] } } },
   { type: "function", function: { name: "modify_all_shapes", description: "Apply a style to all shapes on current slide.", parameters: { type: "object", properties: { fillColor: { type: "string" }, fontSize: { type: "number" } } } } },
@@ -432,6 +433,10 @@ export async function executeToolCall(
       case "add_shape":
         await addShape(args.geometry, { fillColor: args.fillColor ? toHex(args.fillColor) : "#4A90D9", left: args.left, top: args.top, width: args.width, height: args.height });
         return { success: true, message: `Added ${args.geometry}` };
+
+      case "add_image":
+        await addImage(args.url, { left: args.left, top: args.top, width: args.width, height: args.height });
+        return { success: true, message: `Added image from ${args.url}` };
 
       case "add_text_box":
         await addTextBox(args.text, { left: args.left, top: args.top, width: args.width, height: args.height, fontSize: args.fontSize });

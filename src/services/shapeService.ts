@@ -10,6 +10,39 @@ export interface ShapeOptions {
   fontSize?: number;
 }
 
+export async function addImage(imageUrl: string, opts: ShapeOptions = {}): Promise<any> {
+  const slide = await getSelectedSlide();
+  if (!slide) throw new Error("No slide selected.");
+
+  // Fetch image and convert to base64
+  let base64: string;
+  try {
+    const resp = await fetch(imageUrl, { signal: AbortSignal.timeout(10000) });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const blob = await resp.blob();
+    base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    throw new Error(`Failed to load image from: ${imageUrl}`);
+  }
+
+  return runPPT(async (context) => {
+    const shapes = context.presentation.slides.getItem(slide.id).shapes;
+    const img = (shapes as any).addPicture(base64);
+    img.left = opts.left ?? 100; img.top = opts.top ?? 100;
+    if (opts.width) img.width = opts.width;
+    if (opts.height) img.height = opts.height;
+    (img as any).name = `Image_${Date.now()}`;
+    await context.sync();
+    img.load("id, name, type, width, height"); await context.sync();
+    return img;
+  });
+}
+
 export async function addShape(geometry: string, opts: ShapeOptions = {}): Promise<any> {
   const slide = await getSelectedSlide();
   if (!slide) throw new Error("No slide selected.");
