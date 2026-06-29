@@ -23,32 +23,45 @@ export async function addTable(
   return runPPT(async (context) => {
     const shapes = context.presentation.slides.getItem(slide.id).shapes;
 
-    // Try native addTable
+    // Try native addTable (Office 365 / API 1.7+)
+    let nativeTable: any = null;
     try {
       const ts = (shapes as any).addTable(totalRows, data.headers.length, true);
       ts.left = left; ts.top = top;
       ts.width = opts.width ?? 400; ts.height = totalRows * rowH + 10;
       await context.sync();
-      const tbl = (ts as any).table;
-      tbl.load("rows/items/cells/items"); await context.sync();
-      for (let c = 0; c < data.headers.length; c++) {
-        const cell = tbl.rows.items[0].cells.items[c];
-        cell.textFrame.load("textRange"); await context.sync();
-        cell.textFrame.textRange.text = data.headers[c];
-        cell.textFrame.textRange.font.bold = true;
-        cell.textFrame.textRange.font.size = 12;
-      }
-      for (let r = 0; r < data.rows.length; r++) {
-        for (let c = 0; c < data.rows[r].length && c < data.headers.length; c++) {
-          const cell = tbl.rows.items[r + 1].cells.items[c];
+      nativeTable = ts;
+    } catch {
+      // addTable API not available — fall through to visual table
+    }
+
+    if (nativeTable) {
+      // Populate cells with error tolerance
+      try {
+        const tbl = (nativeTable as any).table;
+        tbl.load("rows/items/cells/items"); await context.sync();
+        for (let c = 0; c < data.headers.length; c++) {
+          const cell = tbl.rows.items[0].cells.items[c];
           cell.textFrame.load("textRange"); await context.sync();
-          cell.textFrame.textRange.text = data.rows[r][c];
-          cell.textFrame.textRange.font.size = 11;
+          cell.textFrame.textRange.text = data.headers[c];
+          cell.textFrame.textRange.font.bold = true;
+          cell.textFrame.textRange.font.size = 12;
         }
+        for (let r = 0; r < data.rows.length; r++) {
+          for (let c = 0; c < data.rows[r].length && c < data.headers.length; c++) {
+            const cell = tbl.rows.items[r + 1].cells.items[c];
+            cell.textFrame.load("textRange"); await context.sync();
+            cell.textFrame.textRange.text = data.rows[r][c];
+            cell.textFrame.textRange.font.size = 11;
+          }
+        }
+        await context.sync();
+        return nativeTable;
+      } catch (e) {
+        // Cell population failed but table exists — delete and fallback
+        try { (nativeTable as any).delete(); await context.sync(); } catch { /* */ }
       }
-      await context.sync();
-      return ts;
-    } catch { /* fallback below */ }
+    }
 
     // Fallback: visual table with text boxes
     for (let c = 0; c < data.headers.length; c++) {
