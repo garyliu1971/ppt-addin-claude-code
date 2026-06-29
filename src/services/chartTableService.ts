@@ -26,7 +26,7 @@ export async function addTable(
     // Try native addTable (Office 365 / API 1.7+)
     let nativeTable: any = null;
     try {
-      const ts = (shapes as any).addTable(totalRows, data.headers.length, true);
+      const ts = (shapes as any).addTable(totalRows, data.headers.length, { hasHeaders: true });
       ts.left = left; ts.top = top;
       ts.width = opts.width ?? 400; ts.height = totalRows * rowH + 10;
       await context.sync();
