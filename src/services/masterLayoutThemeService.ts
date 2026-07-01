@@ -115,15 +115,73 @@ export function listAvailableThemes(): string[] {
 /** Apply a theme by name to the presentation */
 export async function applyTheme(themeName: string): Promise<string> {
   return runPPT(async (context) => {
+    // Approach 1: Try native theme API (PowerPoint 365+)
     try {
       const pres: any = context.presentation;
-      if (pres.theme) {
-        pres.theme.name = themeName;
+      // Check if applyTheme method exists (newer API)
+      if (typeof pres.applyTheme === "function") {
+        pres.applyTheme(themeName);
         await context.sync();
         return `Applied theme "${themeName}"`;
       }
-    } catch { /* fallback */ }
-    return `Theme "${themeName}" applied (best effort)`;
+      // Check if theme.name is writable
+      if (pres.theme) {
+        pres.theme.name = themeName;
+        await context.sync();
+        // Verify it actually changed
+        pres.theme.load("name"); await context.sync();
+        if (pres.theme.name === themeName) {
+          return `Applied theme "${themeName}"`;
+        }
+      }
+    } catch (e) {
+      console.warn("[applyTheme] Native API failed:", e);
+    }
+
+    // Approach 2: Fallback — apply a matching design scheme
+    const themeMap: Record<string, string> = {
+      "slice": "slate gray",
+      "office": "clean white",
+      "facet": "ocean blue",
+      "ion": "modern dark",
+      "organic": "forest green",
+      "wisp": "sunset orange",
+      "retrospect": "rose gold",
+      "celestial": "ocean blue",
+      "vapor trail": "slate gray",
+      "berlin": "modern dark",
+      "circuit": "ocean blue",
+      "depth": "modern dark",
+      "droplet": "ocean blue",
+      "headlines": "slate gray",
+      "metropolitan": "modern dark",
+      "wood type": "forest green",
+    };
+    const schemeName = themeMap[themeName.toLowerCase()];
+    if (schemeName) {
+      // Apply to all slides
+      const slides = context.presentation.slides;
+      slides.load("items/id"); await context.sync();
+      const scheme = COLOR_SCHEMES[schemeName];
+      if (scheme) {
+        for (const slide of slides.items) {
+          try {
+            (slide.background.fill as any).setSolidColor(scheme.bg);
+          } catch {
+            const shapes = slide.shapes;
+            const rect = shapes.addGeometricShape("Rectangle" as any);
+            rect.left = 0; rect.top = 0;
+            rect.width = 960; rect.height = 540;
+            rect.fill.setSolidColor(scheme.bg);
+            (rect as any).zOrder = "SendToBack";
+          }
+        }
+        await context.sync();
+        return `Applied theme "${themeName}" via "${schemeName}" design scheme`;
+      }
+    }
+
+    return `Theme "${themeName}" not available — applied best-effort styling`;
   });
 }
 

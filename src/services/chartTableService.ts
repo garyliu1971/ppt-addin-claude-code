@@ -12,16 +12,21 @@ export interface ChartData { categories: string[]; series: { name: string; value
 
 export async function addTable(
   data: { headers: string[]; rows: string[][] },
-  opts: { left?: number; top?: number; width?: number; height?: number } = {}
+  opts: { left?: number; top?: number; width?: number; height?: number } = {},
+  slideId?: string
 ): Promise<any> {
-  const slide = await getSelectedSlide();
-  if (!slide) throw new Error("No slide selected.");
+  let slideObj = slideId ? { id: slideId } as any : null;
+  if (!slideObj) {
+    const sel = await getSelectedSlide();
+    if (!sel) throw new Error("No slide selected.");
+    slideObj = sel;
+  }
   const left = opts.left ?? 50, top = opts.top ?? 120;
   const colW = (opts.width ?? 400) / data.headers.length;
   const rowH = 30, totalRows = data.rows.length + 1;
 
   return runPPT(async (context) => {
-    const shapes = context.presentation.slides.getItem(slide.id).shapes;
+    const shapes = context.presentation.slides.getItem(slideObj.id).shapes;
 
     // Try native addTable (Office 365 / API 1.7+)
     let nativeTable: any = null;
@@ -116,15 +121,20 @@ export async function addTable(
 
 export async function addChart(
   chartType: ChartType, data: ChartData,
-  opts: { left?: number; top?: number; width?: number; height?: number; title?: string; hasLegend?: boolean } = {}
+  opts: { left?: number; top?: number; width?: number; height?: number; title?: string; hasLegend?: boolean } = {},
+  slideId?: string
 ): Promise<any> {
-  const slide = await getSelectedSlide();
-  if (!slide) throw new Error("No slide selected.");
+  let slideObj = slideId ? { id: slideId } as any : null;
+  if (!slideObj) {
+    const sel = await getSelectedSlide();
+    if (!sel) throw new Error("No slide selected.");
+    slideObj = sel;
+  }
   const left = opts.left ?? 80, top = opts.top ?? 100;
   const w = opts.width ?? 500, h = opts.height ?? 350;
 
   return runPPT(async (context) => {
-    const shapes = context.presentation.slides.getItem(slide.id).shapes;
+    const shapes = context.presentation.slides.getItem(slideObj.id).shapes;
 
     // Try native addChart
     try {
@@ -143,8 +153,12 @@ export async function addChart(
       }
       (chart as any).setData(rows, "ByRows");
       await context.sync();
+      console.log("[addChart] Native chart created successfully");
       return cs;
-    } catch { /* fallback below */ }
+    } catch (e) {
+      console.error("[addChart] Native API failed:", e);
+      console.error("[addChart] Error details:", JSON.stringify(e, Object.getOwnPropertyNames(e)));
+      /* fallback below */ }
 
     // Fallback: visual bar chart using rectangles
     const colors = ["#4472C4", "#ED7D31", "#A5A5A5", "#FFC000", "#5B9BD5"];
@@ -219,24 +233,31 @@ export async function addChart(
 
 // ── Update Existing Table ────────────────────────────────────────
 
-async function findTableShape(): Promise<PowerPoint.Shape | null> {
-  const slide = await getSelectedSlide();
-  if (!slide) return null;
-  const shapes = await getShapesOnSlide(slide.id);
+async function findTableShape(slideId?: string): Promise<PowerPoint.Shape | null> {
+  if (!slideId) {
+    const sel = await getSelectedSlide();
+    if (!sel) return null;
+    slideId = sel.id;
+  }
+  const shapes = await getShapesOnSlide(slideId);
   for (const s of shapes) {
     if ((s.type as string) === "Table" || (s.name || "").toLowerCase().includes("table")) return s;
   }
   return null;
 }
 
-export async function upsertTable(data: { headers: string[]; rows: string[][] }): Promise<string> {
-  const existing = await findTableShape();
-  const slide = await getSelectedSlide();
-  if (!slide) throw new Error("No slide selected.");
+export async function upsertTable(data: { headers: string[]; rows: string[][] }, slideId?: string): Promise<string> {
+  let slideObj = slideId ? { id: slideId } as any : null;
+  if (!slideObj) {
+    const sel = await getSelectedSlide();
+    if (!sel) throw new Error("No slide selected.");
+    slideObj = sel;
+  }
+  const existing = await findTableShape(slideObj.id);
 
   if (existing) {
     return runPPT(async (context) => {
-      const shape = context.presentation.slides.getItem(slide.id).shapes.getItem(existing.id);
+      const shape = context.presentation.slides.getItem(slideObj.id).shapes.getItem(existing.id);
       try {
         const tbl: any = (shape as any).table;
         tbl.load("rows/items/cells/items"); await context.sync();
@@ -254,9 +275,9 @@ export async function upsertTable(data: { headers: string[]; rows: string[][] })
         }
         await context.sync();
         return `Updated existing table with ${data.rows.length} row(s)`;
-      } catch { shape.delete(); await context.sync(); await addTable(data); return "Replaced existing table"; }
+      } catch { shape.delete(); await context.sync(); await addTable(data, {}, slideObj.id); return "Replaced existing table"; }
     });
   }
-  await addTable(data);
+  await addTable(data, {}, slideObj.id);
   return `Created new table with ${data.rows.length} row(s)`;
 }

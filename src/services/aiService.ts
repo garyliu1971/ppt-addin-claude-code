@@ -9,6 +9,7 @@ import {
 import {
   addShape, addTextBox, addImage, setShapeFill, deleteShape, applyStyleToAllShapes,
   detectOverlaps, autoLayoutShapes, addStructuredTextBox,
+  addImageFromBase64, setShapeFormat, addCard,
 } from "./shapeService";
 import { addTable, addChart, upsertTable, ChartType, ChartData } from "./chartTableService";
 import {
@@ -92,44 +93,45 @@ async function searchWeb(query: string): Promise<string> {
     } catch { /* try next source */ }
   }
 
-  // ── Wikipedia (CORS-enabled) ───────────────────────────────────
+  // ── Wikipedia (search API → find page → get summary) ──────────
   try {
-    const searchTerm = encodeURIComponent(query.replace(/price|price of|what is|how much|today|live|now/gi, "").trim().slice(0, 50));
-    const wikiUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${searchTerm}`;
-    const r = await fetch(wikiUrl, { signal: AbortSignal.timeout(5000) });
-    if (r.ok) {
-      const d = await r.json();
-      if (d.extract) return `📚 ${d.title}: ${d.extract.slice(0, 500)}... [Wikipedia]`;
+    // Step 1: Search Wikipedia for the query
+    const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*&srlimit=3`;
+    const searchResp = await fetch(searchUrl, { signal: AbortSignal.timeout(5000) });
+    if (searchResp.ok) {
+      const searchData = await searchResp.json();
+      const results = searchData?.query?.search;
+      if (results?.length) {
+        // Step 2: Get summary for the top result
+        const pageTitle = encodeURIComponent(results[0].title);
+        const summaryUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${pageTitle}`;
+        const summaryResp = await fetch(summaryUrl, { signal: AbortSignal.timeout(5000) });
+        if (summaryResp.ok) {
+          const d = await summaryResp.json();
+          if (d.extract) return `📚 ${d.title}: ${d.extract.slice(0, 800)}... [Wikipedia]`;
+        }
+        // Fallback: use search snippet
+        return `📚 Wikipedia: ${results.slice(0, 3).map((r: any) => `• ${r.title}: ${r.snippet.replace(/<[^>]+>/g, "")}`).join("\n")}`;
+      }
     }
   } catch { /* try next source */ }
 
-  // ── DuckDuckGo via proxy (last resort) ─────────────────────────
-  const ddgUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
-  const proxies = [
-    `https://corsproxy.io/?url=${encodeURIComponent(ddgUrl)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(ddgUrl)}`,
-  ];
-
-  for (const proxyUrl of proxies) {
-    try {
-      const r = await fetch(proxyUrl, { signal: AbortSignal.timeout(8000) });
-      if (!r.ok) continue;
-      const raw = await r.text();
-      let data: any;
-      try { data = JSON.parse(raw); } catch { continue; }
-      // allorigins wraps in contents
-      if (data.contents) data = JSON.parse(data.contents);
-
-      if (data.AbstractText) return data.AbstractText;
-      if (data.Answer) return data.Answer;
-      if (data.RelatedTopics) {
-        return data.RelatedTopics.slice(0, 5)
+  // ── DuckDuckGo instant answer (still works for simple queries) ──
+  try {
+    const ddgUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
+    const r = await fetch(ddgUrl, { signal: AbortSignal.timeout(5000) });
+    if (r.ok) {
+      const d = await r.json();
+      if (d.AbstractText) return `📚 ${d.AbstractText.slice(0, 500)} [DuckDuckGo]`;
+      if (d.Answer) return `📚 ${d.Answer} [DuckDuckGo]`;
+      if (d.RelatedTopics?.length) {
+        return d.RelatedTopics.slice(0, 5)
           .filter((t: any) => t.Text)
           .map((t: any) => `• ${t.Text}`)
           .join("\n");
       }
-    } catch { /* try next */ }
-  }
+    }
+  } catch { /* try next source */ }
 
   return "⚠️ Web search returned no results. Use your own knowledge about this topic to create the slide content. Do NOT search again — proceed with what you know.";
 }
@@ -142,11 +144,13 @@ interface ToolDef {
 }
 
 const TOOLS: ToolDef[] = [
-  { type: "function", function: { name: "add_shape", description: "Add a geometric shape. Types: Rectangle, Oval, Triangle, Diamond, Arrow, Star5, Heart, Cloud, Sun, Moon, SmileyFace.", parameters: { type: "object", properties: { geometry: { type: "string" }, fillColor: { type: "string" }, left: { type: "number" }, top: { type: "number" }, width: { type: "number" }, height: { type: "number" } }, required: ["geometry"] } } },
-  { type: "function", function: { name: "add_image", description: "Add an image from a URL to the current slide. Use full image URLs (jpg, png, svg, gif).", parameters: { type: "object", properties: { url: { type: "string" }, left: { type: "number" }, top: { type: "number" }, width: { type: "number" }, height: { type: "number" } }, required: ["url"] } } },
-  { type: "function", function: { name: "add_text_box", description: "Add a text box with full positioning. Use for headers, body text, footers. Slide is typically 960x540pt (widescreen) or 720x540pt (4:3).", parameters: { type: "object", properties: { text: { type: "string" }, left: { type: "number" }, top: { type: "number" }, width: { type: "number" }, height: { type: "number" }, fontSize: { type: "number" } }, required: ["text"] } } },
-  { type: "function", function: { name: "add_rich_text", description: "Add a text box with PER-PARAGRAPH formatting. Each paragraph can have its own fontSize, bold, fontColor. Use for structured content where headings (bold 16pt) and body (normal 10pt) must coexist in one box. Paragraphs array: [{text, fontSize?, bold?, fontColor?}].", parameters: { type: "object", properties: { left: { type: "number" }, top: { type: "number" }, width: { type: "number" }, height: { type: "number" }, paragraphs: { type: "array", items: { type: "object", properties: { text: { type: "string" }, fontSize: { type: "number" }, bold: { type: "boolean" }, fontColor: { type: "string" } }, required: ["text"] } } }, required: ["paragraphs"] } } },
-  { type: "function", function: { name: "modify_all_shapes", description: "Apply a style to all shapes on current slide.", parameters: { type: "object", properties: { fillColor: { type: "string" }, fontSize: { type: "number" } } } } },
+  { type: "function", function: { name: "add_shape", description: "Add a geometric shape. Types: Rectangle, RoundRectangle, Oval/Ellipse, Triangle, Diamond, Arrow, Star5, Heart, Cloud, Sun, Moon, SmileyFace. For numbered badges or labels INSIDE shapes, use text+textColor+fontSize (text auto-centers).", parameters: { type: "object", properties: { geometry: { type: "string" }, fillColor: { type: "string" }, left: { type: "number" }, top: { type: "number" }, width: { type: "number" }, height: { type: "number" }, transparency: { type: "number" }, lineVisible: { type: "boolean" }, lineColor: { type: "string" }, lineWeight: { type: "number" }, rotation: { type: "number" }, text: { type: "string", description: "Text to place inside the shape (auto-centered, e.g. badge number)" }, textColor: { type: "string" }, fontSize: { type: "number" } }, required: ["geometry"] } } },
+  { type: "function", function: { name: "add_image", description: "Add an image from a URL to the current slide. Use full image URLs (jpg, png, svg, gif). For base64 data URIs, use add_image_base64.", parameters: { type: "object", properties: { url: { type: "string" }, left: { type: "number" }, top: { type: "number" }, width: { type: "number" }, height: { type: "number" } }, required: ["url"] } } },
+  { type: "function", function: { name: "add_image_base64", description: "Add an image from a base64 data URI directly. Copilot: slide.shapes.addImage(base64, {left, top, width, height}).", parameters: { type: "object", properties: { base64: { type: "string", description: "Full base64 data URI (data:image/png;base64,...)" }, left: { type: "number" }, top: { type: "number" }, width: { type: "number" }, height: { type: "number" }, transparency: { type: "number" } }, required: ["base64"] } } },
+  { type: "function", function: { name: "add_card", description: "Create a content card WITH text in one call. Automatically creates RoundRectangle background + heading text box + optional subtitle. Use for match brackets, info cards, list items. heading=team name/score, subtitle=date/venue.", parameters: { type: "object", properties: { left: { type: "number" }, top: { type: "number" }, width: { type: "number", description: "default 430" }, height: { type: "number", description: "default 52" }, fillColor: { type: "string" }, lineColor: { type: "string" }, heading: { type: "string", description: "Main text (team name, score, title)" }, headingSize: { type: "number" }, headingColor: { type: "string" }, subtitle: { type: "string", description: "Secondary text (date, venue, details)" }, subtitleSize: { type: "number" }, subtitleColor: { type: "string" } }, required: ["left", "top", "heading"] } } },
+  { type: "function", function: { name: "add_text_box", description: "Add a text box with full positioning. Supports alignment (Left/Center/Right/Justify), verticalAlignment (Top/Middle/Bottom), margins (left/right/top/bottom in pt). Slide is typically 960x540pt (widescreen).", parameters: { type: "object", properties: { text: { type: "string" }, left: { type: "number" }, top: { type: "number" }, width: { type: "number" }, height: { type: "number" }, fontSize: { type: "number" }, horizontalAlignment: { type: "string" }, verticalAlignment: { type: "string" }, leftMargin: { type: "number" }, rightMargin: { type: "number" }, topMargin: { type: "number" }, bottomMargin: { type: "number" } }, required: ["text"] } } },
+  { type: "function", function: { name: "add_rich_text", description: "Add a text box with PER-PARAGRAPH formatting. Each paragraph can have fontSize, bold, fontColor, italic, alignment. Also supports box-level verticalAlignment and margins. Use for structured content.", parameters: { type: "object", properties: { left: { type: "number" }, top: { type: "number" }, width: { type: "number" }, height: { type: "number" }, verticalAlignment: { type: "string" }, leftMargin: { type: "number" }, rightMargin: { type: "number" }, topMargin: { type: "number" }, bottomMargin: { type: "number" }, paragraphs: { type: "array", items: { type: "object", properties: { text: { type: "string" }, fontSize: { type: "number" }, bold: { type: "boolean" }, italic: { type: "boolean" }, fontColor: { type: "string" }, alignment: { type: "string" } }, required: ["text"] } } }, required: ["paragraphs"] } } },
+  { type: "function", function: { name: "modify_all_shapes", description: "Apply a style to all shapes on current slide. Supports fillColor, fontSize, transparency, lineVisible.", parameters: { type: "object", properties: { fillColor: { type: "string" }, fontSize: { type: "number" }, transparency: { type: "number" }, lineVisible: { type: "boolean" } } } } },
   { type: "function", function: { name: "set_shape_fill", description: "Set fill color of a specific shape by name.", parameters: { type: "object", properties: { shapeName: { type: "string" }, color: { type: "string" } }, required: ["shapeName", "color"] } } },
   { type: "function", function: { name: "delete_shape", description: "Delete a shape by name.", parameters: { type: "object", properties: { shapeName: { type: "string" } }, required: ["shapeName"] } } },
   { type: "function", function: { name: "add_table", description: "Insert a data table.", parameters: { type: "object", properties: { headers: { type: "array", items: { type: "string" } }, rows: { type: "array", items: { type: "array", items: { type: "string" } } } }, required: ["headers", "rows"] } } },
@@ -165,6 +169,7 @@ const TOOLS: ToolDef[] = [
   { type: "function", function: { name: "list_themes", description: "List all available PowerPoint themes and design schemes.", parameters: { type: "object", properties: {} } } },
   { type: "function", function: { name: "web_search", description: "Search the web for real-time data (sports scores, weather, news, stock prices). Use when you need current information.", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } } },
   { type: "function", function: { name: "auto_layout", description: "Auto-arrange ALL shapes on the current slide into a neat grid. Detects overlaps and repositions. Use when shapes overlap or user asks to rearrange/format/align shapes.", parameters: { type: "object", properties: { columns: { type: "number", description: "Number of columns (default 3)" } } } } },
+  { type: "function", function: { name: "set_shape_format", description: "Apply Copilot formatting to a specific shape: fill, line, font, alignment, margins, transparency. Copilot: shape.fill.setSolidColor, shape.fill.transparency, shape.lineFormat.visible/color/weight, textFrame.verticalAlignment, textFrame.leftMargin/rightMargin, paragraphFormat.horizontalAlignment.", parameters: { type: "object", properties: { shapeName: { type: "string" }, fillColor: { type: "string" }, transparency: { type: "number" }, lineColor: { type: "string" }, lineWeight: { type: "number" }, lineVisible: { type: "boolean" }, rotation: { type: "number" }, fontSize: { type: "number" }, bold: { type: "boolean" }, italic: { type: "boolean" }, fontName: { type: "string" }, fontColor: { type: "string" }, alignment: { type: "string" }, verticalAlignment: { type: "string" }, leftMargin: { type: "number" }, rightMargin: { type: "number" }, topMargin: { type: "number" }, bottomMargin: { type: "number" } }, required: ["shapeName"] } } },
   { type: "function", function: { name: "no_op", description: "Use when request cannot be fulfilled.", parameters: { type: "object", properties: { message: { type: "string" } }, required: ["message"] } } },
 ];
 
@@ -210,30 +215,25 @@ export async function runAIConversation(
 ): Promise<AIResult> {
   if (!apiKey) throw new Error("API key not set.");
 
-  const sysPrompt = `You are a PowerPoint AI assistant. Use tools to fulfill requests.
+  const sysPrompt = `You are a PowerPoint AI assistant. Your job: create professional slides with REAL content.
 
-Today's date: ${new Date().toISOString().split("T")[0]} (${new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}). Always use this as the current date.
+Today: ${new Date().toISOString().split("T")[0]}. Slide context: ${await buildSlideContext()}
 
-Current context: ${await buildSlideContext()}
-
-Rules:
-- CRITICAL: When operating on MULTIPLE slides in one command, you MUST include "target_slide" (1-based) on EVERY write tool call. Example: set_slide_title({"title":"A","target_slide":1}), set_slide_background({"color":"blue","target_slide":2}).
-- After add_slide, the NEW slide becomes the default. To target the OLD slide, explicitly set target_slide.
-- If unsure which slide is which, call list_slides first.
-- Use your own knowledge. Only web_search for explicit "latest/live/current/today/real-time" requests.
-- add_table updates existing tables automatically. Do NOT delete tables.
-- web_search max 2 times. Then use your own knowledge.
-- When moving slides, plan ALL moves in ONE turn. Each slide can only be moved once.
-- You can call multiple tools per turn.
-- Colors: blue=#4A90D9, red=#E74C3C, green=#2ECC71, yellow=#F1C40F, orange=#E67E22, purple=#9B59B6, pink=#E91E63, black=#333333, white=#FFFFFF, dark navy=#1a1a2e.
-- When moving slides, plan ALL moves in ONE turn. Each slide can only be moved once.
-- DOCUMENT GENERATION: Slide is 960x540pt (widescreen 16:9). Use add_shape("Rectangle") for header/footer banners. Use add_text_box with precise left/top/width/height for structured layouts. Typical layout: header banner at top=0 (960x50), footer banner at top=500 (960x40), body text at left=60, top=70, width=840, height=410. For dense legal text, fontSize=8 or 9. For normal body, fontSize=10 or 11. For titles, fontSize=14-18 with bold.
-- CRITICAL — CONTENT REQUIRED: When asked to create a "document", "disclaimer", "disclosure", "legal notice", or "report" page, you MUST generate the actual text content and put it in add_text_box or add_rich_text calls. Never create empty slides with just a title. Write real substantive text from your own knowledge. For legal disclaimers, write full multi-paragraph legal text. Each slide should have at least one body text box.
-- RICH TEXT: Use add_rich_text for structured content where headings (bold, 14-18pt) and body paragraphs (normal, 10-11pt) appear together. Example: [{text:"一、版权声明",fontSize:16,bold:true},{text:"本文件...",fontSize:10}]. Use add_text_box for single-style text only.
-- NEVER create duplicate slides with the same title. One slide = one title. You can only call add_slide/add_slide_with_title ONCE per unique title per turn.
-- CALL add_slide_with_title ONLY ONCE. Then immediately populate that slide with shapes and text boxes. Do NOT call add_slide multiple times.
-- MULTI-PAGE: Only create slides you have actual content for. Don't pre-create placeholder slides hoping to fill them later. If the text fits on 1-2 slides, only create 1-2 slides. If you need more slides, create a new slide AND immediately fill it with add_text_box in the same turn.
-- When the task is fully complete (slides with actual content created), say so in a final message.`;
+CRITICAL — follow these rules:
+1. ALWAYS add content to slides. When creating a slide, include add_text_box / add_card / add_rich_text with REAL substantive text in the SAME turn. A slide with only a title is a FAILURE.
+1b. Unless user explicitly asks to create a NEW slide, modify the CURRENT slide only. Do NOT call add_slide unless asked.
+2. When user asks for introductions, details, bios, history, or facts about ANY topic — ALWAYS call web_search first. Use the real facts returned. web_search max 3 times.
+3. Plan ALL elements for one slide in ONE turn. Don't split slide creation across multiple turns.
+4. Multi-slide: every write call must include "target_slide" (1-based index).
+5. Slide dimensions: 960×540pt. Use precise left/top/width/height values.
+6. Colors: blue=#4A90D9, red=#E74C3C, green=#2ECC71, yellow=#F1C40F, orange=#E67E22, purple=#9B59B6, black=#333333, white=#FFFFFF, dark navy=#1a1a2e.
+7. For cards/lists: use add_card (creates roundrect + text in one call). For text: add_text_box or add_rich_text. For shapes: add_shape.
+8. Layout patterns:
+   - Simple slide: add_slide → set_slide_background → add_text_box (title, top=20) → add_text_box (body, top=80)
+   - Cards grid: add_card with col=i%2, row=floor(i/2), w=430, h=52, pitch=58
+   - Bracket: add_card for every match (heading=teams, subtitle=date/venue), 2-column grid
+9. If the request is vague, create ONE well-designed slide with substantive content. Better one good slide than multiple empty ones.
+10. When done, confirm what was created.`;
 
   const textMessages: string[] = [];
   const toolResults: ExecResult[] = [];
@@ -249,16 +249,21 @@ Rules:
     messages.push({ role: "system", content: sysPrompt });
   } else {
     // Inject current context as a system note so AI doesn't re-ask what's on the slide
-    messages.push({ role: "system", content: `Current: ${await buildSlideContext()}Use your own knowledge. Multi-slide: always use target_slide.` });
+    messages.push({ role: "system", content: `Current context: ${await buildSlideContext()}Stay on current slide unless asked to add a new one.` });
   }
   messages.push(...conversationHistory);
   messages.push({ role: "user", content: userCommand });
+
+  // Trim history to keep context manageable (keep last 12 messages = ~6 turns)
+  if (conversationHistory.length > 12) {
+    conversationHistory = conversationHistory.slice(-8);
+  }
 
   for (let turn = 0; turn < MAX; turn++) {
     const resp = await fetch(`${API_BASE}/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-      body: JSON.stringify({ model: MODEL, messages, tools: TOOLS, tool_choice: "auto", temperature: 0.1, max_tokens: 2000 }),
+      body: JSON.stringify({ model: MODEL, messages, tools: TOOLS, tool_choice: "auto", temperature: 0.5, max_tokens: 8192 }),
     });
 
     if (!resp.ok) throw new Error(`API error ${resp.status}: ${await resp.text()}`);
@@ -292,8 +297,8 @@ Rules:
         // In dryRun mode, still execute read-only tools so AI gets real data
         if (dryRun && !isReadOnly) {
           result = { success: true, message: `[Preview] Would call ${tc.function.name}` };
-        } else if (tc.function.name === "web_search" && searchCount >= 2) {
-          result = { success: false, message: "⚠️ Maximum 2 web searches reached. Create slides NOW." };
+        } else if (tc.function.name === "web_search" && searchCount >= 3) {
+          result = { success: false, message: "⚠️ Maximum 3 web searches reached. Create slides NOW with what you know." };
         } else if (tc.function.name === "move_slide" && movedSlides.has(String(args.fromIndex))) {
           result = { success: false, message: `⚠️ Slide ${args.fromIndex} was already moved — cannot move again.` };
         } else {
@@ -306,7 +311,7 @@ Rules:
       // Only push to pendingCalls if not a duplicate
       if (result.success || !result.message.includes("skipped")) {
         toolResults.push(result);
-        pendingCalls.push({ name: tc.function.name, args, description: `${tc.function.name}(${JSON.stringify(args).slice(0, 80)})` });
+        pendingCalls.push({ name: tc.function.name, args, description: `${tc.function.name}(${JSON.stringify(args).slice(0, 200)})` });
       } else {
         toolResults.push(result);
       }
@@ -369,16 +374,26 @@ export async function executePendingCalls(
       ? await resolveSlideId(call.args.target_slide, defaultSid)
       : defaultSid;
 
+    console.log(`[execute] ${call.name} → slide=${targetSid || "(none)"}`, call.args);
     const r = await executeToolCall(call.name, call.args, targetSid);
+    console.log(`[execute] ${call.name} → ${r.success ? "OK" : "FAIL"}: ${r.message}`);
     results.push(r);
 
     // After adding a slide, auto-track it as default for subsequent tools
     if (r.success && (call.name === "add_slide" || call.name === "add_slide_with_title")) {
       try {
-        const slides = await getSlides();
-        if (slides.length > slideCount) {
-          defaultSid = slides[slides.length - 1].id;
-          slideCount = slides.length;
+        // Extract slide ID from the success message
+        const idMatch = r.message.match(/id:\s*([^\s)]+)/);
+        if (idMatch) {
+          defaultSid = idMatch[1];
+          slideCount++;
+        } else {
+          // Fallback: reload slides
+          const slides = await getSlides();
+          if (slides.length > slideCount) {
+            defaultSid = slides[slides.length - 1].id;
+            slideCount = slides.length;
+          }
         }
       } catch { /* */ }
     }
@@ -431,24 +446,48 @@ export async function executeToolCall(
   try {
     switch (name) {
       case "add_shape":
-        await addShape(args.geometry, { fillColor: args.fillColor ? toHex(args.fillColor) : "#4A90D9", left: args.left, top: args.top, width: args.width, height: args.height });
+        await addShape(args.geometry, { fillColor: args.fillColor ? toHex(args.fillColor) : "#4A90D9", left: args.left, top: args.top, width: args.width, height: args.height, transparency: args.transparency, lineVisible: args.lineVisible, lineColor: args.lineColor ? toHex(args.lineColor) : undefined, lineWeight: args.lineWeight, rotation: args.rotation, text: args.text, textColor: args.textColor ? toHex(args.textColor) : undefined, fontSize: args.fontSize }, sid ?? undefined);
         return { success: true, message: `Added ${args.geometry}` };
 
       case "add_image":
-        await addImage(args.url, { left: args.left, top: args.top, width: args.width, height: args.height });
+        await addImage(args.url, { left: args.left, top: args.top, width: args.width, height: args.height }, sid ?? undefined);
         return { success: true, message: `Added image from ${args.url}` };
 
+      case "add_image_base64":
+        await addImageFromBase64(args.base64, { left: args.left, top: args.top, width: args.width, height: args.height, transparency: args.transparency }, sid ?? undefined);
+        return { success: true, message: `Added image from base64` };
+
+      case "add_card":
+        await addCard({
+          left: args.left ?? 40, top: args.top ?? 80,
+          width: args.width ?? 430, height: args.height ?? 52,
+          fillColor: args.fillColor ? toHex(args.fillColor) : undefined,
+          lineColor: args.lineColor ? toHex(args.lineColor) : undefined,
+          heading: args.heading || "Untitled",
+          headingSize: args.headingSize,
+          headingColor: args.headingColor ? toHex(args.headingColor) : undefined,
+          subtitle: args.subtitle,
+          subtitleSize: args.subtitleSize,
+          subtitleColor: args.subtitleColor ? toHex(args.subtitleColor) : undefined,
+        }, sid ?? undefined);
+        return { success: true, message: `Added card: "${args.heading || "Untitled"}"` };
+
       case "add_text_box":
-        await addTextBox(args.text, { left: args.left, top: args.top, width: args.width, height: args.height, fontSize: args.fontSize });
+        await addTextBox(args.text, { left: args.left, top: args.top, width: args.width, height: args.height, fontSize: args.fontSize, horizontalAlignment: args.horizontalAlignment, verticalAlignment: args.verticalAlignment, leftMargin: args.leftMargin, rightMargin: args.rightMargin, topMargin: args.topMargin, bottomMargin: args.bottomMargin }, sid ?? undefined);
         return { success: true, message: `Added text: "${args.text.slice(0, 60)}${args.text.length > 60 ? "..." : ""}"` };
 
-      case "add_rich_text":
-        await addStructuredTextBox(args.paragraphs, { left: args.left, top: args.top, width: args.width, height: args.height });
-        return { success: true, message: `Added rich text: ${args.paragraphs.length} paragraph(s)` };
+      case "add_rich_text": {
+        const paras = args.paragraphs;
+        if (!paras || !Array.isArray(paras) || paras.length === 0) {
+          return { success: false, message: "add_rich_text requires 'paragraphs' array" };
+        }
+        await addStructuredTextBox(paras, { left: args.left, top: args.top, width: args.width, height: args.height, verticalAlignment: args.verticalAlignment, leftMargin: args.leftMargin, rightMargin: args.rightMargin, topMargin: args.topMargin, bottomMargin: args.bottomMargin }, sid ?? undefined);
+        return { success: true, message: `Added rich text: ${paras.length} paragraph(s)` };
+      }
 
       case "modify_all_shapes": {
         if (!sid) return { success: false, message: "No slide selected" };
-        const n = await applyStyleToAllShapes(sid, { fillColor: args.fillColor ? toHex(args.fillColor) : undefined, fontSize: args.fontSize });
+        const n = await applyStyleToAllShapes(sid, { fillColor: args.fillColor ? toHex(args.fillColor) : undefined, fontSize: args.fontSize, transparency: args.transparency, lineVisible: args.lineVisible });
         return { success: true, message: `Styled ${n} shape(s)` };
       }
 
@@ -471,11 +510,11 @@ export async function executeToolCall(
       }
 
       case "add_table":
-        var tr = await upsertTable({ headers: args.headers, rows: args.rows });
+        var tr = await upsertTable({ headers: args.headers, rows: args.rows }, sid ?? undefined);
         return { success: true, message: tr };
 
       case "add_chart":
-        await addChart(args.chartType as ChartType, { categories: args.categories, series: args.series }, { title: args.title });
+        await addChart(args.chartType as ChartType, { categories: args.categories, series: args.series }, { title: args.title }, sid ?? undefined);
         return { success: true, message: `Added ${args.chartType} chart` };
 
       case "set_slide_background": {
@@ -546,6 +585,33 @@ export async function executeToolCall(
         const themes = listAvailableThemes();
         const schemes = listDesignSchemes();
         return { success: true, message: `Themes (${themes.length}): ${themes.join(", ")}\nDesign Schemes (${schemes.length}): ${schemes.join(", ")}` };
+      }
+
+      case "set_shape_format": {
+        if (!sid) return { success: false, message: "No slide selected" };
+        const shapes = await getShapesOnSlide(sid);
+        const t = shapes.find(s => (s.name || "").toLowerCase().includes(args.shapeName.toLowerCase()));
+        if (!t) return { success: false, message: `Shape "${args.shapeName}" not found` };
+        await setShapeFormat(t.id, sid, {
+          fillColor: args.fillColor ? toHex(args.fillColor) : undefined,
+          transparency: args.transparency,
+          lineColor: args.lineColor ? toHex(args.lineColor) : undefined,
+          lineWeight: args.lineWeight,
+          lineVisible: args.lineVisible,
+          rotation: args.rotation,
+          fontSize: args.fontSize,
+          bold: args.bold,
+          italic: args.italic,
+          fontName: args.fontName,
+          fontColor: args.fontColor ? toHex(args.fontColor) : undefined,
+          alignment: args.alignment,
+          verticalAlignment: args.verticalAlignment,
+          leftMargin: args.leftMargin,
+          rightMargin: args.rightMargin,
+          topMargin: args.topMargin,
+          bottomMargin: args.bottomMargin,
+        });
+        return { success: true, message: `Formatted "${t.name}"` };
       }
 
       case "no_op":
