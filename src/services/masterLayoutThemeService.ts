@@ -291,7 +291,7 @@ export async function setSlideTitle(slideId: string, title: string): Promise<voi
     shapes.load("items/id, items/name, items/type"); await context.sync();
 
     // Look for a title placeholder or text box
-    let titleShape: PowerPoint.Shape | null = null;
+    let titleShape: any = null;
     for (const s of shapes.items) {
       const name = (s.name || "").toLowerCase();
       const type = (s as any).type || "";

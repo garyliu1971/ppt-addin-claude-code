@@ -18,6 +18,7 @@ import {
   moveSlide, duplicateSlide, addSlideWithTitle, getSlidesWithIndex,
   applyTheme, listAvailableThemes, applyDesignScheme, listDesignSchemes,
 } from "./masterLayoutThemeService";
+import { buildProfessionalSlide, getNBADemoData } from "./slideBuilderService";
 
 // ── Config ────────────────────────────────────────────────────────
 
@@ -171,6 +172,7 @@ const TOOLS: ToolDef[] = [
   { type: "function", function: { name: "auto_layout", description: "Auto-arrange ALL shapes on the current slide into a neat grid. Detects overlaps and repositions. Use when shapes overlap or user asks to rearrange/format/align shapes.", parameters: { type: "object", properties: { columns: { type: "number", description: "Number of columns (default 3)" } } } } },
   { type: "function", function: { name: "set_shape_format", description: "Apply Copilot formatting to a specific shape: fill, line, font, alignment, margins, transparency. Copilot: shape.fill.setSolidColor, shape.fill.transparency, shape.lineFormat.visible/color/weight, textFrame.verticalAlignment, textFrame.leftMargin/rightMargin, paragraphFormat.horizontalAlignment.", parameters: { type: "object", properties: { shapeName: { type: "string" }, fillColor: { type: "string" }, transparency: { type: "number" }, lineColor: { type: "string" }, lineWeight: { type: "number" }, lineVisible: { type: "boolean" }, rotation: { type: "number" }, fontSize: { type: "number" }, bold: { type: "boolean" }, italic: { type: "boolean" }, fontName: { type: "string" }, fontColor: { type: "string" }, alignment: { type: "string" }, verticalAlignment: { type: "string" }, leftMargin: { type: "number" }, rightMargin: { type: "number" }, topMargin: { type: "number" }, bottomMargin: { type: "number" } }, required: ["shapeName"] } } },
   { type: "function", function: { name: "no_op", description: "Use when request cannot be fulfilled.", parameters: { type: "object", properties: { message: { type: "string" } }, required: ["message"] } } },
+  { type: "function", function: { name: "build_professional_slide", description: "Build a complete professional slide in ONE call with background, title, description, multi-column cards, insight bar, and footer. Use when user wants a 'professional', 'magazine-style', 'data-driven', or 'NBA/FIFA-style' slide. Accepts a full JSON schema. For NBA demo, pass nba_demo=true.", parameters: { type: "object", properties: { nba_demo: { type: "boolean", description: "Set to true to build the built-in NBA demo slide" }, data: { type: "object", description: "Full ProfessionalSlideSchema JSON. See slideBuilderService.ts for the schema shape." } } } } },
 ];
 
 // ── Context Builder ───────────────────────────────────────────────
@@ -233,7 +235,8 @@ CRITICAL — follow these rules:
    - Cards grid: add_card with col=i%2, row=floor(i/2), w=430, h=52, pitch=58
    - Bracket: add_card for every match (heading=teams, subtitle=date/venue), 2-column grid
 9. If the request is vague, create ONE well-designed slide with substantive content. Better one good slide than multiple empty ones.
-10. When done, confirm what was created.`;
+10. When done, confirm what was created.
+11. **Professional slides**: when the user wants a polished, data-driven slide with cards/columns/insight bars — use build_professional_slide with the full JSON schema. This creates background, eyebrow, title, description, column cards, insight footer all at once. For NBA/football team slides, pass nba_demo=true.`;
 
   const textMessages: string[] = [];
   const toolResults: ExecResult[] = [];
@@ -612,6 +615,18 @@ export async function executeToolCall(
           bottomMargin: args.bottomMargin,
         });
         return { success: true, message: `Formatted "${t.name}"` };
+      }
+
+      case "build_professional_slide": {
+        if (args.nba_demo) {
+          const r = await buildProfessionalSlide(getNBADemoData(), sid ?? undefined);
+          return { success: true, message: `Built NBA demo slide: ${r.shapeCount} shapes on slide ${r.slideId}` };
+        }
+        if (args.data) {
+          const r = await buildProfessionalSlide(args.data, sid ?? undefined);
+          return { success: true, message: `Built professional slide: ${r.shapeCount} shapes on slide ${r.slideId}` };
+        }
+        return { success: false, message: "build_professional_slide requires 'data' schema or 'nba_demo=true'" };
       }
 
       case "no_op":
