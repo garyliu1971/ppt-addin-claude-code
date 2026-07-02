@@ -215,14 +215,21 @@ export async function buildProfessionalSlide(
     // ── CRITICAL: sync after creating all shapes ──
     await ctx.sync();
 
-    // ── Phase 2: Load shapes and apply text styles ──
-    const allShapes = ctx.presentation.slides.getItem(targetId).shapes;
+    // ── Phase 2: Load all shapes and apply text styles by name ──
+    const slideShapes = ctx.presentation.slides.getItem(targetId).shapes;
+    slideShapes.load("items/name, items/textFrame/textRange/font, items/textFrame/textRange/paragraphFormat, items/textFrame/verticalAlignment");
+    await ctx.sync();
+
+    const shapeMap = new Map<string, PowerPoint.Shape>();
+    for (const s of slideShapes.items) {
+      const sName = (s as any).name || "";
+      if (sName) shapeMap.set(sName, s);
+    }
+
     for (const style of textStyles) {
       try {
-        const s = findShapeByName(allShapes, style.name);
+        const s = shapeMap.get(style.name);
         if (!s) continue;
-        s.load("textFrame/textRange/font, textFrame/textRange/paragraphFormat, textFrame/verticalAlignment");
-        await ctx.sync();
 
         const tr = s.textFrame.textRange;
         tr.font.name = style.fontName;
