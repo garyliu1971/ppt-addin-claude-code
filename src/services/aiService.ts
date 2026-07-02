@@ -190,10 +190,14 @@ async function buildSlideContext(): Promise<string> {
       ctx += `Current slide: Slide ${idx || "?"} (id: ${slide.id})\n`;
       const shapes = await getShapesOnSlide(slide.id);
       if (shapes.length > 0) {
-        ctx += `Shapes (${shapes.length}):\n`;
+        ctx += `Shapes (${shapes.length}) — existing positions:\n`;
         for (const s of shapes) {
-          ctx += `  - "${s.name || "?"}" type=${s.type} pos=(${Math.round(s.left)},${Math.round(s.top)}) ${Math.round(s.width)}x${Math.round(s.height)}\n`;
+          const r = Math.round(s.left + s.width);
+          const b = Math.round(s.top + s.height);
+          ctx += `  - "${s.name || "?"}" type=${s.type} pos=(${Math.round(s.left)},${Math.round(s.top)})→(${r},${b}) ${Math.round(s.width)}x${Math.round(s.height)}\n`;
         }
+        const maxBottom = Math.max(...shapes.map(s => Math.round(s.top + s.height)));
+        ctx += `  Lowest shape bottom edge: y=${maxBottom}\n`;
       }
     }
     return ctx;
@@ -258,7 +262,9 @@ Example 3: User says "create 3 cards in a row"
 • 2 cards: cols at left=40 and left=490, width=430
 • 3 cards: cols at left=40, left=330, left=620, width=280
 • 4 cards: cols at left=20, left=255, left=490, left=725, width=215
-• Vertical spacing: card height default 80, pitch = height + 10
+• When adding cards AFTER existing shapes: start at top = max(existing shapes bottom edge) + 20
+• NEVER place cards at top < 140 when a title exists — cards will overlap title text
+• Vertical spacing: card rows at pitch = height + 10
 
 ─── VALIDATION RULES (enforced) ───
 • All shapes within slide (960x540). left+width ≤ 960, top+height ≤ 540.
