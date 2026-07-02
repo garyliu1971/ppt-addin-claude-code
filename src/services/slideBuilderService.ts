@@ -64,97 +64,79 @@ export interface ProfessionalSlideSchema {
   footer?: { left: string; right: string };
 }
 
-// ── Internal helpers ───────────────────────────────────────────────
-
-interface RectSpec {
-  x: number; y: number; w: number; h: number;
-  fill?: string; round?: boolean; border?: boolean;
-  accentBar?: boolean;
-}
-
-interface TextSpec {
-  x: number; y: number; w: number; h: number;
-  text: string;
-  size: number; color: string; font: string;
-  bold?: boolean; align?: string; vAlign?: string;
-}
+// ── Internal constants ───────────────────────────────────────────────
 
 /** Slide width/height in pt */
 const SW = 960, SH = 540;
 
-function rect(slideId: string, name: string, s: RectSpec, t: DesignTokens) {
-  return runPPT(async (ctx) => {
-    const shapes = ctx.presentation.slides.getItem(slideId).shapes;
-    const r = shapes.addGeometricShape(
-      (s.round ? "RoundRectangle" : "Rectangle") as any
-    );
-    r.left = s.x; r.top = s.y; r.width = s.w; r.height = s.h;
-    (r as any).name = name;
-    if (s.accentBar) {
-      r.fill.setSolidColor(t.accent);
-    } else if (s.fill) {
-      r.fill.setSolidColor(s.fill);
-    } else {
-      r.fill.clear();
-    }
-    if (s.border) {
-      r.lineFormat.visible = true;
-      (r.lineFormat as any).color = t.cardBorder;
-      r.lineFormat.weight = 1;
-    } else {
-      r.lineFormat.visible = false;
-    }
-    await ctx.sync();
-    return r;
-  });
+// ── Inline helpers (no runPPT — use within a single batch) ─────────
+
+function addRect(
+  shapes: PowerPoint.ShapeCollection,
+  name: string, x: number, y: number, w: number, h: number,
+  fillColor: string | null, t: DesignTokens,
+  opts?: { round?: boolean; border?: boolean; accentBar?: boolean }
+) {
+  const r = shapes.addGeometricShape(
+    (opts?.round ? "RoundRectangle" : "Rectangle") as any
+  );
+  r.left = x; r.top = y; r.width = w; r.height = h;
+  (r as any).name = name;
+  if (opts?.accentBar) {
+    r.fill.setSolidColor(t.accent);
+  } else if (fillColor) {
+    r.fill.setSolidColor(fillColor);
+  } else {
+    r.fill.clear();
+  }
+  if (opts?.border) {
+    r.lineFormat.visible = true;
+    (r.lineFormat as any).color = t.cardBorder;
+    r.lineFormat.weight = 1;
+  } else {
+    r.lineFormat.visible = false;
+  }
+  return r;
 }
 
-function textBox(slideId: string, name: string, s: TextSpec) {
-  return runPPT(async (ctx) => {
-    const shapes = ctx.presentation.slides.getItem(slideId).shapes;
-    const tb = shapes.addTextBox(s.text);
-    tb.left = s.x; tb.top = s.y; tb.width = s.w; tb.height = s.h;
-    (tb as any).name = name;
-    tb.fill.clear();
-    tb.lineFormat.visible = false;
-    await ctx.sync();
+function addTextBox(
+  shapes: PowerPoint.ShapeCollection,
+  name: string, x: number, y: number, w: number, h: number,
+  text: string,
+  opts: { size: number; color: string; font: string; bold?: boolean; align?: string; vAlign?: string }
+) {
+  const tb = shapes.addTextBox(text);
+  tb.left = x; tb.top = y; tb.width = w; tb.height = h;
+  (tb as any).name = name;
+  tb.fill.clear();
+  tb.lineFormat.visible = false;
 
-    const tr = tb.textFrame.textRange;
-    tr.font.name = s.font;
-    tr.font.size = s.size;
-    tr.font.color = s.color;
-    if (s.bold !== undefined) tr.font.bold = s.bold;
-    if (s.align) {
-      const map: Record<string, string> = {
-        left: "Left", center: "Center", right: "Right", justify: "Justify",
-      };
-      (tr.paragraphFormat as any).horizontalAlignment = map[s.align] || "Left";
-    }
-    if (s.vAlign) {
-      const map: Record<string, string> = {
-        top: "Top", middle: "Middle", bottom: "Bottom",
-      };
-      (tb.textFrame as any).verticalAlignment = map[s.vAlign] || "Middle";
-    }
-    await ctx.sync();
-    return tb;
-  });
+  const tr = tb.textFrame.textRange;
+  tr.font.name = opts.font;
+  tr.font.size = opts.size;
+  tr.font.color = opts.color;
+  if (opts.bold !== undefined) tr.font.bold = opts.bold;
+  if (opts.align) {
+    const map: Record<string, string> = {
+      left: "Left", center: "Center", right: "Right", justify: "Justify",
+    };
+    (tr.paragraphFormat as any).horizontalAlignment = map[opts.align] || "Left";
+  }
+  if (opts.vAlign) {
+    const map: Record<string, string> = {
+      top: "Top", middle: "Middle", bottom: "Bottom",
+    };
+    (tb.textFrame as any).verticalAlignment = map[opts.vAlign] || "Middle";
+  }
+  return tb;
 }
 
-// ── Main builder ───────────────────────────────────────────────────
+// ── Main builder (single PowerPoint.run batch) ─────────────────────
 
-/**
- * Build a professional slide from a JSON schema.
- *
- * @param schema - The slide content & styling
- * @param slideId - Optional: target a specific slide; defaults to selected slide
- * @returns count of shapes created
- */
 export async function buildProfessionalSlide(
   schema: ProfessionalSlideSchema,
   slideId?: string,
 ): Promise<{ slideId: string; shapeCount: number }> {
-  // Resolve target slide
   let targetId = slideId;
   if (!targetId) {
     const sel = await getSelectedSlide();
@@ -164,150 +146,112 @@ export async function buildProfessionalSlide(
 
   const t: DesignTokens = { ...DEFAULT_DARK_TOKENS, ...(schema.tokens || {}) };
 
-  // ── 1) Background ──
-  await rect(targetId, "BG", { x: 0, y: 0, w: SW, h: SH, fill: t.bg }, t);
+  let count = 0;
 
-  // ── 2) Eyebrow ──
-  if (schema.eyebrow) {
-    await rect(targetId, "EyebrowMarker", { x: 50, y: 48, w: 25, h: 7, accentBar: true }, t);
-    await textBox(targetId, "EyebrowText", {
-      x: 84, y: 37, w: 648, h: 29,
-      text: schema.eyebrow,
-      size: 12, color: t.accent, font: t.headingFont, bold: true,
-    });
-  }
+  await runPPT(async (ctx) => {
+    const shapes = ctx.presentation.slides.getItem(targetId).shapes;
 
-  // ── 3) Title ──
-  const titleY = schema.eyebrow ? 66 : 48;
-  await textBox(targetId, "Title", {
-    x: 50, y: titleY, w: 857, h: 55,
-    text: schema.title,
-    size: 28, color: t.white, font: t.headingFont, bold: true,
-  });
+    // ── 1) Background ──
+    addRect(shapes, "BG", 0, 0, SW, SH, t.bg, t);
+    count++;
 
-  // ── 4) Description ──
-  let nextY = titleY + 58;
-  if (schema.description) {
-    await textBox(targetId, "Description", {
-      x: 50, y: nextY, w: 857, h: 44,
-      text: schema.description,
-      size: 14, color: t.muted, font: t.bodyFont, vAlign: "top",
-    });
-    nextY += 44;
-  }
-
-  // ── 5) Column cards ──
-  const cols = schema.columns || [];
-  if (cols.length > 0) {
-    const cardY = nextY + 14;
-    const gap = 22;
-    const margin = 50;
-    const totalGap = gap * (cols.length - 1);
-    const cardW = (SW - margin * 2 - totalGap) / cols.length;
-    const cardH = 198;
-
-    for (let i = 0; i < cols.length; i++) {
-      const col = cols[i];
-      const cx = margin + i * (cardW + gap);
-      const pad = 20;
-
-      // Card background
-      await rect(targetId, `Card${i + 1}_BG`, {
-        x: cx, y: cardY, w: cardW, h: cardH,
-        fill: t.cardBg, round: true, border: true,
-      }, t);
-
-      // Accent bar top
-      await rect(targetId, `Card${i + 1}_Bar`, {
-        x: cx + pad, y: cardY + 18, w: 17, h: 5, accentBar: true,
-      }, t);
-
-      // Team/column title
-      await textBox(targetId, `Card${i + 1}_Title`, {
-        x: cx + pad, y: cardY + 26, w: cardW - pad * 2, h: 26,
-        text: col.title,
-        size: 16, color: t.white, font: t.headingFont, bold: true,
-      });
-
-      // Subtitle
-      if (col.subtitle) {
-        await textBox(targetId, `Card${i + 1}_Sub`, {
-          x: cx + pad, y: cardY + 52, w: cardW - pad * 2, h: 20,
-          text: col.subtitle,
-          size: 9.5, color: t.accent, font: t.headingFont, bold: true,
-        });
-      }
-
-      // Items (name + description pairs)
-      const itemStartY = cardY + (col.subtitle ? 80 : 62);
-      const itemGap = 39;
-      for (let j = 0; j < col.items.length; j++) {
-        const iy = itemStartY + j * itemGap;
-        await textBox(targetId, `C${i + 1}_I${j + 1}_Name`, {
-          x: cx + pad, y: iy, w: cardW - pad * 2, h: 19,
-          text: col.items[j].name,
-          size: 12, color: t.white, font: t.headingFont, bold: true,
-        });
-        await textBox(targetId, `C${i + 1}_I${j + 1}_Desc`, {
-          x: cx + pad, y: iy + 19, w: cardW - pad * 2, h: 18,
-          text: col.items[j].description,
-          size: 9, color: t.muted, font: t.bodyFont,
-        });
-      }
+    // ── 2) Eyebrow ──
+    if (schema.eyebrow) {
+      addRect(shapes, "EyebrowMarker", 50, 48, 25, 7, null, t, { accentBar: true });
+      addTextBox(shapes, "EyebrowText", 84, 37, 648, 29, schema.eyebrow,
+        { size: 12, color: t.accent, font: t.headingFont, bold: true });
+      count += 2;
     }
 
-    nextY = cardY + cardH + 14;
-  }
+    // ── 3) Title ──
+    const titleY = schema.eyebrow ? 66 : 48;
+    addTextBox(shapes, "Title", 50, titleY, 857, 55, schema.title,
+      { size: 28, color: t.white, font: t.headingFont, bold: true });
+    count++;
 
-  // ── 6) Insight / outlook bar ──
-  if (schema.insight) {
-    const barY = Math.min(nextY + 6, SH - 146); // prevent overflow
-    const barH = 97;
-    await rect(targetId, "Insight_BG", {
-      x: 50, y: barY, w: 857, h: barH,
-      fill: t.cardBg, round: true, border: true,
-    }, t);
+    // ── 4) Description ──
+    let nextY = titleY + 58;
+    if (schema.description) {
+      addTextBox(shapes, "Description", 50, nextY, 857, 44, schema.description,
+        { size: 14, color: t.muted, font: t.bodyFont, vAlign: "top" });
+      count++;
+      nextY += 44;
+    }
 
-    // Left accent stripe
-    await rect(targetId, "Insight_Bar", {
-      x: 50, y: barY, w: 6.5, h: barH, accentBar: true,
-    }, t);
+    // ── 5) Column cards ──
+    const cols = schema.columns || [];
+    if (cols.length > 0) {
+      const cardY = nextY + 14;
+      const gap = 22;
+      const margin = 50;
+      const totalGap = gap * (cols.length - 1);
+      const cardW = (SW - margin * 2 - totalGap) / cols.length;
+      const cardH = 198;
 
-    await textBox(targetId, "Insight_Label", {
-      x: 71, y: barY + 12, w: 394, h: 24,
-      text: schema.insight.label,
-      size: 12.5, color: t.accent, font: t.headingFont, bold: true,
-    });
+      for (let i = 0; i < cols.length; i++) {
+        const col = cols[i];
+        const cx = margin + i * (cardW + gap);
+        const pad = 20;
 
-    await textBox(targetId, "Insight_Body", {
-      x: 71, y: barY + 37, w: 803, h: 54,
-      text: schema.insight.body,
-      size: 11, color: t.white, font: t.bodyFont, vAlign: "top",
-    });
-  }
+        addRect(shapes, `Card${i + 1}_BG`, cx, cardY, cardW, cardH, t.cardBg, t,
+          { round: true, border: true });
+        count++;
 
-  // ── 7) Footer ──
-  if (schema.footer) {
-    await textBox(targetId, "Footer_L", {
-      x: 50, y: SH - 33, w: 432, h: 22,
-      text: schema.footer.left,
-      size: 9, color: t.muted, font: t.bodyFont,
-    });
-    await textBox(targetId, "Footer_R", {
-      x: 504, y: SH - 33, w: 406, h: 22,
-      text: schema.footer.right,
-      size: 9, color: t.muted, font: t.bodyFont, align: "right",
-    });
-  }
+        addRect(shapes, `Card${i + 1}_Bar`, cx + pad, cardY + 18, 17, 5, null, t,
+          { accentBar: true });
+        count++;
 
-  // Count shapes created (approximate)
-  let count = 1; // BG
-  if (schema.eyebrow) count += 2;
-  count += 1; // title
-  if (schema.description) count += 1;
-  if (cols.length) count += cols.length * (6 + cols.reduce((s, c) => s + c.items.length * 2, 0)); // cards
-  if (schema.insight) count += 4;
-  if (schema.footer) count += 2;
+        addTextBox(shapes, `Card${i + 1}_Title`, cx + pad, cardY + 26, cardW - pad * 2, 26, col.title,
+          { size: 16, color: t.white, font: t.headingFont, bold: true });
+        count++;
+
+        if (col.subtitle) {
+          addTextBox(shapes, `Card${i + 1}_Sub`, cx + pad, cardY + 52, cardW - pad * 2, 20, col.subtitle,
+            { size: 9.5, color: t.accent, font: t.headingFont, bold: true });
+          count++;
+        }
+
+        const itemStartY = cardY + (col.subtitle ? 80 : 62);
+        const itemGap = 39;
+        for (let j = 0; j < col.items.length; j++) {
+          const iy = itemStartY + j * itemGap;
+          addTextBox(shapes, `C${i + 1}_I${j + 1}_Name`, cx + pad, iy, cardW - pad * 2, 19, col.items[j].name,
+            { size: 12, color: t.white, font: t.headingFont, bold: true });
+          addTextBox(shapes, `C${i + 1}_I${j + 1}_Desc`, cx + pad, iy + 19, cardW - pad * 2, 18, col.items[j].description,
+            { size: 9, color: t.muted, font: t.bodyFont });
+          count += 2;
+        }
+      }
+
+      nextY = cardY + cardH + 14;
+    }
+
+    // ── 6) Insight / outlook bar ──
+    if (schema.insight) {
+      const barY = Math.min(nextY + 6, SH - 146);
+      const barH = 97;
+      addRect(shapes, "Insight_BG", 50, barY, 857, barH, t.cardBg, t,
+        { round: true, border: true });
+      addRect(shapes, "Insight_Bar", 50, barY, 6.5, barH, null, t,
+        { accentBar: true });
+      addTextBox(shapes, "Insight_Label", 71, barY + 12, 394, 24, schema.insight.label,
+        { size: 12.5, color: t.accent, font: t.headingFont, bold: true });
+      addTextBox(shapes, "Insight_Body", 71, barY + 37, 803, 54, schema.insight.body,
+        { size: 11, color: t.white, font: t.bodyFont, vAlign: "top" });
+      count += 4;
+    }
+
+    // ── 7) Footer ──
+    if (schema.footer) {
+      addTextBox(shapes, "Footer_L", 50, SH - 33, 432, 22, schema.footer.left,
+        { size: 9, color: t.muted, font: t.bodyFont });
+      addTextBox(shapes, "Footer_R", 504, SH - 33, 406, 22, schema.footer.right,
+        { size: 9, color: t.muted, font: t.bodyFont, align: "right" });
+      count += 2;
+    }
+
+    await ctx.sync();
+  });
 
   return { slideId: targetId, shapeCount: count };
 }
