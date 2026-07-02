@@ -114,3 +114,69 @@ Keeps last 8 messages to prevent context bloat across multi-turn conversations.
 | `list_slides` / `list_themes` | ✅ | |
 | `web_search` | ✅ | Wikipedia search API |
 | `auto_layout` | ✅ | grid arrangement |
+
+---
+
+# Request Lifecycle — Validation & QA (2026-07-02)
+
+> 参考 End-to-End Request Lifecycle 架构图，补齐 Step 5 (Validate & Repair) 和 Step 6 (QA)。
+
+## 架构对齐
+
+```
+1. User Message ──→ 2. Context Builder ──→ 3. Prompt Assembler ──→ 4. LLM Tool Calling
+                                                                       │
+                                                   ┌───────────────────┘
+                                                   ▼
+                                       5. Validate & Repair ←── NEW
+                                          │  ❌ fail → loop back to LLM
+                                          ▼  ✅ pass
+                                       6. Execute + Render ←── NEW (QA)
+```
+
+## 新增 `src/services/validateService.ts`
+
+### Pre-execution Validation
+
+| 校验项 | 规则 | 级别 |
+|---|---|---|
+| **Bounds overflow** | `left + width ≤ 960`, `top + height ≤ 540` | Error（阻断） |
+| **负坐标** | `left < 0` 或 `top < 0` | Warning |
+| **最小尺寸** | `width/height ≥ 2pt` | Error |
+| **Required fields** | 每 tool 的必填参数检查 | Error |
+| **Color format** | 非 hex 非 named color | Warning |
+| **Overlap prediction** | 同批次 shapes 位置重叠预测 | Warning |
+
+### Post-execution Read-back QA
+
+```ts
+readBackQA(slideId, expectedMin, toolNames)
+// → "✅ QA: 12 shapes on slide after add_text_box, add_shape"
+// → "⚠️ QA: Expected ≥3 shapes, found 1"
+```
+
+## `aiService.ts` 改进
+
+| 改进 | 说明 |
+|---|---|
+| **Few-shot examples (3 例)** | 蓝色矩形 / 标题+正文 / 三列卡片 → LLM 坐标准确率显著提高 |
+| **Validation rules in prompt** | 960×540 bounds, 命名颜色列表 → LLM 自我约束 |
+| **Step 5 pre-exec check** | dryRun 循环中每个 write call 先 validate，不通过则阻断并返回错误给 LLM |
+| **Step 6 QA** | executePendingCalls 末尾读回 shape count 验证 |
+
+## Repair Loop
+
+```
+LLM tool_call → validateToolCall()
+  → ❌ "left(800) + width(600) = 1400 exceeds slide width 960"
+  → 错误注入 conversation → LLM 自动修正 → 重新 tool_call
+```
+
+## 效果
+
+| Before | After |
+|---|---|
+| LLM 产出超大 shape → 执行后超出 slide | 校验阻断 + 自动修复 |
+| 多个 shapes 堆叠 | Overlap warning |
+| 不确定是否执行成功 | `✅ QA: N shapes on slide` |
+| LLM 坐标随机 | Few-shot 示例 + bounds 约束 |
