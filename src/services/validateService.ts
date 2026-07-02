@@ -164,12 +164,23 @@ function predictOverlaps(shapes: PlannedShape[]): ValidationError[] {
       const bR = b.left! + b.width!;
       const bB = b.top! + b.height!;
 
-      if (a.left! < bR && aR > b.left! && a.top! < bB && aB > b.top!) {
-        errs.push({
-          tool: a.tool,
-          message: `Shape "${a.tool}" overlaps with "${b.tool}" at (${a.left},${a.top})↔(${b.left},${b.top})`,
-          severity: "warn",
-        });
+      // Check if they overlap
+      if (!(a.left! < bR && aR > b.left! && a.top! < bB && aB > b.top!)) continue;
+
+      // Calculate overlap area
+      const ox = Math.max(0, Math.min(aR, bR) - Math.max(a.left!, b.left!));
+      const oy = Math.max(0, Math.min(aB, bB) - Math.max(a.top!, b.top!));
+      const overlapArea = ox * oy;
+      const minArea = Math.min(a.width! * a.height!, b.width! * b.height!);
+      const overlapPct = minArea > 0 ? overlapArea / minArea : 0;
+
+      const msg = `Shape "${a.tool}" overlaps ${(overlapPct * 100).toFixed(0)}% with "${b.tool}" at (${a.left},${a.top})↔(${b.left},${b.top})`;
+
+      // Severe overlap (>30% of smaller shape) → error
+      if (overlapPct > 0.3) {
+        errs.push({ tool: a.tool, message: msg, severity: "error" });
+      } else {
+        errs.push({ tool: a.tool, message: msg, severity: "warn" });
       }
     }
   }
