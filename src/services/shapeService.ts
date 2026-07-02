@@ -327,6 +327,23 @@ export async function deleteShape(sid: string, slid: string): Promise<void> {
   });
 }
 
+/**
+ * Delete ALL shapes on a slide (useful for clearing placeholder shapes
+ * before adding new content on a freshly created slide).
+ */
+export async function clearSlide(slid: string): Promise<number> {
+  return runPPT(async (context) => {
+    const shapes = context.presentation.slides.getItem(slid).shapes;
+    shapes.load("items/id"); await context.sync();
+    const count = shapes.items.length;
+    for (const s of shapes.items) {
+      s.delete();
+    }
+    await context.sync();
+    return count;
+  });
+}
+
 export async function applyStyleToAllShapes(slid: string, style: { fillColor?: string; lineColor?: string; lineWeight?: number; fontSize?: number; transparency?: number; lineVisible?: boolean }): Promise<number> {
   return runPPT(async (context) => {
     const shapes = context.presentation.slides.getItem(slid).shapes;

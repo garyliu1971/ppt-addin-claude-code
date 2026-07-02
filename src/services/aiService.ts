@@ -9,7 +9,7 @@ import {
 import {
   addShape, addTextBox, addImage, setShapeFill, deleteShape, applyStyleToAllShapes,
   detectOverlaps, autoLayoutShapes, addStructuredTextBox,
-  addImageFromBase64, setShapeFormat, addCard,
+  addImageFromBase64, setShapeFormat, addCard, clearSlide,
 } from "./shapeService";
 import { addTable, addChart, upsertTable, ChartType, ChartData } from "./chartTableService";
 import {
@@ -159,7 +159,8 @@ const TOOLS: ToolDef[] = [
   { type: "function", function: { name: "add_chart", description: "Insert a chart. chartType: ColumnClustered|BarClustered|Pie|Line|Doughnut|Area", parameters: { type: "object", properties: { chartType: { type: "string" }, title: { type: "string" }, categories: { type: "array", items: { type: "string" } }, series: { type: "array", items: { type: "object", properties: { name: { type: "string" }, values: { type: "array", items: { type: "number" } } } } } }, required: ["chartType", "categories", "series"] } } },
   { type: "function", function: { name: "set_slide_background", description: "Set slide background color.", parameters: { type: "object", properties: { color: { type: "string" } }, required: ["color"] } } },
   { type: "function", function: { name: "apply_layout", description: "Apply a slide layout by name.", parameters: { type: "object", properties: { layoutName: { type: "string" } }, required: ["layoutName"] } } },
-  { type: "function", function: { name: "add_slide", description: "Add a new blank slide.", parameters: { type: "object", properties: {} } } },
+  { type: "function", function: { name: "add_slide", description: "Add a new blank slide. ALWAYS call clear_slide(next) after this to remove layout placeholders before adding content.", parameters: { type: "object", properties: {} } } },
+  { type: "function", function: { name: "clear_slide", description: "Delete ALL shapes on the current slide. Use after add_slide to remove placeholder shapes before adding content. Returns count of deleted shapes.", parameters: { type: "object", properties: {} } } },
   { type: "function", function: { name: "add_slide_with_title", description: "Add a new slide with a title.", parameters: { type: "object", properties: { title: { type: "string" } }, required: ["title"] } } },
   { type: "function", function: { name: "delete_slide_by_index", description: "Delete a slide by number (1-based).", parameters: { type: "object", properties: { index: { type: "number" } }, required: ["index"] } } },
   { type: "function", function: { name: "set_slide_title", description: "Set the title of the current slide.", parameters: { type: "object", properties: { title: { type: "string" } }, required: ["title"] } } },
@@ -190,14 +191,22 @@ async function buildSlideContext(): Promise<string> {
       ctx += `Current slide: Slide ${idx || "?"} (id: ${slide.id})\n`;
       const shapes = await getShapesOnSlide(slide.id);
       if (shapes.length > 0) {
-        ctx += `Shapes (${shapes.length}) — existing positions:\n`;
-        for (const s of shapes) {
-          const r = Math.round(s.left + s.width);
-          const b = Math.round(s.top + s.height);
-          ctx += `  - "${s.name || "?"}" type=${s.type} pos=(${Math.round(s.left)},${Math.round(s.top)})→(${r},${b}) ${Math.round(s.width)}x${Math.round(s.height)}\n`;
+        // Separate placeholders from real content
+        const realShapes = shapes.filter(s => (s as any).type !== "Placeholder" && !(s.name || "").toLowerCase().includes("placeholder"));
+        const placeholderCount = shapes.length - realShapes.length;
+        if (realShapes.length > 0) {
+          ctx += `Real shapes (${realShapes.length}):\n`;
+          for (const s of realShapes) {
+            const r = Math.round(s.left + s.width);
+            const b = Math.round(s.top + s.height);
+            ctx += `  - "${s.name || "?"}" type=${s.type} pos=(${Math.round(s.left)},${Math.round(s.top)})→(${r},${b}) ${Math.round(s.width)}x${Math.round(s.height)}\n`;
+          }
+          const maxBottom = Math.max(...realShapes.map(s => Math.round(s.top + s.height)));
+          ctx += `  Lowest real content bottom: y=${maxBottom}\n`;
+        } else {
+          ctx += `No real content — only ${placeholderCount} placeholder(s). Use clear_slide to remove them.\n`;
         }
-        const maxBottom = Math.max(...shapes.map(s => Math.round(s.top + s.height)));
-        ctx += `  Lowest shape bottom edge: y=${maxBottom}\n`;
+        if (placeholderCount > 0) ctx += `ℹ️ ${placeholderCount} placeholder(s) exist — will be cleared before adding content.\n`;
       }
     }
     return ctx;
@@ -236,9 +245,11 @@ CRITICAL — follow these rules:
 6. Colors: blue=#4A90D9, red=#E74C3C, green=#2ECC71, yellow=#F1C40F, orange=#E67E22, purple=#9B59B6, black=#333333, white=#FFFFFF, dark navy=#1a1a2e.
 7. For cards/lists: use add_card (creates roundrect + text in one call). For text: add_text_box or add_rich_text. For shapes: add_shape.
 8. Layout patterns:
-   - Simple slide: add_slide → set_slide_background → add_text_box (title, top=20) → add_text_box (body, top=80)
+   - New slide: add_slide → clear_slide → set_slide_background → add_text_box (title)
+   - Simple slide: add_slide → clear_slide → set_slide_background → add_text_box (title, top=20) → add_text_box (body, top=80)
    - Cards grid: add_card with col=i%2, row=floor(i/2), w=430, h=52, pitch=58
    - Bracket: add_card for every match (heading=teams, subtitle=date/venue), 2-column grid
+   ‼️ ALWAYS call clear_slide after add_slide — placeholders interfere with layout.
 9. If the request is vague, create ONE well-designed slide with substantive content. Better one good slide than multiple empty ones.
 10. When done, confirm what was created.
 11. **Professional slides**: when the user wants a polished, data-driven slide with cards/columns/insight bars — use build_professional_slide with the full JSON schema. This creates background, eyebrow, title, description, column cards, insight footer all at once. For NBA/football team slides, pass nba_demo=true.
@@ -609,6 +620,7 @@ export async function executeToolCall(
       }
 
       case "add_slide": { const s = await addSlide(); return { success: true, message: `Added slide (id: ${s?.id || "?"})` }; }
+      case "clear_slide": { if (!sid) return { success: false, message: "No slide selected" }; const n = await clearSlide(sid); return { success: true, message: `Cleared ${n} placeholder shape(s)` }; }
       case "add_slide_with_title": { await addSlideWithTitle(args.title); return { success: true, message: `Added slide: "${args.title}"` }; }
       case "delete_slide_by_index": { const m = await deleteSlideByIndex(args.index); return { success: true, message: m }; }
       case "set_slide_title": { if (!sid) return { success: false, message: "No slide selected" }; await setSlideTitle(sid, args.title); return { success: true, message: `Title: "${args.title}"` }; }
