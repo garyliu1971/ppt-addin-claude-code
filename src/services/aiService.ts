@@ -19,7 +19,7 @@ import {
   applyTheme, listAvailableThemes, applyDesignScheme, listDesignSchemes,
 } from "./masterLayoutThemeService";
 import { buildProfessionalSlide, getNBADemoData } from "./slideBuilderService";
-import { validateToolCall, readBackQA } from "./validateService";
+import { validateToolCall, validateBatch, readBackQA } from "./validateService";
 
 // ── Config ────────────────────────────────────────────────────────
 
@@ -252,10 +252,18 @@ Example 3: User says "create 3 cards in a row"
 → add_card(left=40, top=100, width=280, height=80, heading="Card 1", subtitle="Details here")
 → add_card(left=340, top=100, width=280, height=80, heading="Card 2", subtitle="Details here")
 → add_card(left=640, top=100, width=280, height=80, heading="Card 3", subtitle="Details here")
+‼️ CRITICAL: When user asks for N cards, you MUST call add_card N times — one call per card. Do NOT put all content in a single card.
+
+─── CARD LAYOUT RULES ───
+• 2 cards: cols at left=40 and left=490, width=430
+• 3 cards: cols at left=40, left=330, left=620, width=280
+• 4 cards: cols at left=20, left=255, left=490, left=725, width=215
+• Vertical spacing: card height default 80, pitch = height + 10
 
 ─── VALIDATION RULES (enforced) ───
 • All shapes within slide (960x540). left+width ≤ 960, top+height ≤ 540.
-• Min shape size: 2pt. Colors: hex #RRGGBB or named (blue, red, etc).`;
+• Min shape size: 2pt. Colors: hex #RRGGBB or named (blue, red, etc).
+• Overlap >30% between planned shapes is BLOCKED — use correct positions.`;
 
   const textMessages: string[] = [];
   const toolResults: ExecResult[] = [];
@@ -357,6 +365,21 @@ Example 3: User says "create 3 cards in a row"
           ? JSON.stringify({ success: true, message: `[Preview] Would execute ${tc.function.name}` })
           : JSON.stringify({ success: result.success, message: result.message, context: dryRun ? "" : await buildSlideContext() }),
       });
+    }
+
+    // ── Batch overlap check after all tool calls in this turn ──
+    if (dryRun && pendingCalls.length > 1) {
+      const batchResults = validateBatch(
+        pendingCalls.map(c => ({ name: c.name, args: c.args }))
+      );
+      for (const br of batchResults) {
+        if (br.errors.length > 0) {
+          toolResults.push({
+            success: false,
+            message: `⚠️ Overlap: ${br.errors.map(e => e.message).join("; ")}`,
+          });
+        }
+      }
     }
   }
 
