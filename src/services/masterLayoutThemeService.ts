@@ -166,14 +166,22 @@ export async function applyTheme(themeName: string): Promise<string> {
       if (scheme) {
         for (const slide of slides.items) {
           try {
-            (slide.background.fill as any).setSolidColor(scheme.bg);
+            // Try native slide background API first
+            const bgFill: any = (slide as any).background?.fill;
+            if (bgFill && typeof bgFill.setSolidColor === "function") {
+              bgFill.setSolidColor(scheme.bg);
+            } else {
+              // Fallback: background rectangle sent to back
+              const shapes = slide.shapes;
+              const rect = shapes.addGeometricShape("Rectangle" as any);
+              rect.left = 0; rect.top = 0;
+              rect.width = 960; rect.height = 540;
+              rect.fill.setSolidColor(scheme.bg);
+              rect.lineFormat.visible = false;
+              try { (rect as any).zOrder = "SendToBack"; } catch { /* */ }
+            }
           } catch {
-            const shapes = slide.shapes;
-            const rect = shapes.addGeometricShape("Rectangle" as any);
-            rect.left = 0; rect.top = 0;
-            rect.width = 960; rect.height = 540;
-            rect.fill.setSolidColor(scheme.bg);
-            (rect as any).zOrder = "SendToBack";
+            // skip individual slide errors
           }
         }
         await context.sync();
@@ -209,26 +217,31 @@ export async function applyDesignScheme(slideId: string, schemeName: string): Pr
     // Set background
     const slide = context.presentation.slides.getItem(slideId);
     try {
-      (slide.background.fill as any).setSolidColor(scheme.bg);
+      const bgFill: any = (slide as any).background?.fill;
+      if (bgFill && typeof bgFill.setSolidColor === "function") {
+        bgFill.setSolidColor(scheme.bg);
+      } else {
+        throw new Error("no bg API");
+      }
     } catch {
       const shapes = slide.shapes;
       const rect = shapes.addGeometricShape("Rectangle" as any);
       rect.left = 0; rect.top = 0;
       rect.width = 960; rect.height = 540;
       rect.fill.setSolidColor(scheme.bg);
-      (rect as any).zOrder = "SendToBack";
+      rect.lineFormat.visible = false;
+      try { (rect as any).zOrder = "SendToBack"; } catch { /* */ }
     }
     await context.sync();
 
-    // Apply accent to all shapes
+    // Only change text color on existing shapes, not fill
     const shapes = slide.shapes;
     shapes.load("items/id, items/type"); await context.sync();
     for (const s of shapes.items) {
-      try { s.fill.setSolidColor(scheme.accent); } catch { /* */ }
       try {
         s.textFrame.load("textRange/font"); await context.sync();
         s.textFrame.textRange.font.color = scheme.text;
-      } catch { /* */ }
+      } catch { /* shape may not have text */ }
     }
     await context.sync();
     return `Applied "${schemeName}" design scheme`;

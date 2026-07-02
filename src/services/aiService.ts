@@ -174,6 +174,7 @@ const TOOLS: ToolDef[] = [
   { type: "function", function: { name: "auto_layout", description: "Auto-arrange ALL shapes on the current slide into a neat grid. Detects overlaps and repositions. Use when shapes overlap or user asks to rearrange/format/align shapes.", parameters: { type: "object", properties: { columns: { type: "number", description: "Number of columns (default 3)" } } } } },
   { type: "function", function: { name: "set_shape_format", description: "Apply Copilot formatting to a specific shape: fill, line, font, alignment, margins, transparency. Copilot: shape.fill.setSolidColor, shape.fill.transparency, shape.lineFormat.visible/color/weight, textFrame.verticalAlignment, textFrame.leftMargin/rightMargin, paragraphFormat.horizontalAlignment.", parameters: { type: "object", properties: { shapeName: { type: "string" }, fillColor: { type: "string" }, transparency: { type: "number" }, lineColor: { type: "string" }, lineWeight: { type: "number" }, lineVisible: { type: "boolean" }, rotation: { type: "number" }, fontSize: { type: "number" }, bold: { type: "boolean" }, italic: { type: "boolean" }, fontName: { type: "string" }, fontColor: { type: "string" }, alignment: { type: "string" }, verticalAlignment: { type: "string" }, leftMargin: { type: "number" }, rightMargin: { type: "number" }, topMargin: { type: "number" }, bottomMargin: { type: "number" } }, required: ["shapeName"] } } },
   { type: "function", function: { name: "no_op", description: "Use when request cannot be fulfilled.", parameters: { type: "object", properties: { message: { type: "string" } }, required: ["message"] } } },
+  { type: "function", function: { name: "ask_user", description: "Pause and ask the user to choose from options. Use when the request is ambiguous (e.g. 'create a chart' without specifying type, or 'add a slide about sports' without specifying sport). Provide a clear question and 2-4 specific options. Execution will wait for user response then continue.", parameters: { type: "object", properties: { question: { type: "string", description: "The question to ask the user" }, options: { type: "array", items: { type: "string" }, description: "2-4 distinct options for the user to choose from" } }, required: ["question", "options"] } } },
   { type: "function", function: { name: "build_professional_slide", description: "Build a complete professional slide in ONE call with background, title, description, multi-column cards, insight bar, and footer. Use when user wants a 'professional', 'magazine-style', 'data-driven', or 'NBA/FIFA-style' slide. Accepts a full JSON schema. For NBA demo, pass nba_demo=true.", parameters: { type: "object", properties: { nba_demo: { type: "boolean", description: "Set to true to build the built-in NBA demo slide" }, data: { type: "object", description: "Full ProfessionalSlideSchema JSON. See slideBuilderService.ts for the schema shape." } } } } },
 ];
 
@@ -215,7 +216,7 @@ async function buildSlideContext(): Promise<string> {
 
 // ── Multi-turn Conversation ───────────────────────────────────────
 
-export interface ExecResult { success: boolean; message: string; }
+export interface ExecResult { success: boolean; message: string; askUser?: { question: string; options: string[] }; }
 export interface PendingCall { name: string; args: Record<string, any>; description: string; }
 
 export interface AIResult {
@@ -252,7 +253,8 @@ CRITICAL — follow these rules:
    ‼️ ALWAYS call clear_slide after add_slide — placeholders interfere with layout.
 9. If the request is vague, create ONE well-designed slide with substantive content. Better one good slide than multiple empty ones.
 10. When done, confirm what was created.
-11. **Professional slides**: when the user wants a polished, data-driven slide with cards/columns/insight bars — use build_professional_slide with the full JSON schema. This creates background, eyebrow, title, description, column cards, insight footer all at once. For NBA/football team slides, pass nba_demo=true.
+11. **Professional slides**: when the user wants a polished, data-driven slide with cards/columns/insight bars — use build_professional_slide with the full JSON schema.
+12. **When ambiguous**: if user request has multiple valid interpretations (e.g. chart type, team names, color schemes), call ask_user with 2-4 specific options. Do NOT guess — let the user choose.
 
 ─── FEW-SHOT EXAMPLES ───
 Example 1: User says "add a blue rectangle"
@@ -714,6 +716,9 @@ export async function executeToolCall(
         }
         return { success: false, message: "build_professional_slide requires 'data' schema or 'nba_demo=true'" };
       }
+
+      case "ask_user":
+        return { success: false, message: `Asking: "${args.question}"`, askUser: { question: args.question, options: args.options } };
 
       case "no_op":
         return { success: false, message: args.message || "Cannot fulfill" };

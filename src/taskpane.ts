@@ -14,7 +14,7 @@ import { addShape, addTextBox, setShapeFill, setShapeText, deleteShape, applySty
 import { addTable, addChart, ChartType, ChartData } from "./services/chartTableService";
 import { getMasterDetails, applyLayoutToSlide, findLayoutByName, setSlideBackground, getThemeDetails, addSlide, deleteSlide, getAllLayouts, deleteSlideByIndex, setSlideTitle, moveSlide, duplicateSlide, addSlideWithTitle, getSlidesWithIndex, applyTheme, listAvailableThemes, applyDesignScheme, listDesignSchemes } from "./services/masterLayoutThemeService";
 import { registerEventHandlers, unregisterEventHandlers } from "./services/eventService";
-import { setApiKey, getApiKey, hasApiKey, runAIConversation, executePendingCalls, clearApiKey, clearConversationHistory, getHistoryLength, PendingCall } from "./services/aiService";
+import { setApiKey, getApiKey, hasApiKey, runAIConversation, executePendingCalls, clearApiKey, clearConversationHistory, getHistoryLength, PendingCall, ExecResult } from "./services/aiService";
 
 // ── State ─────────────────────────────────────────────────────────
 
@@ -72,6 +72,46 @@ function addHistoryEntry(entry: LogEntry): void {
   }
 }
 
+// ── Interactive Option Prompt ──────────────────────────────────────
+
+function showOptionPrompt(question: string, options: string[]): Promise<string | null> {
+  return new Promise((resolve) => {
+    log({ level: "info", message: `❓ ${question}`, timestamp: Date.now() });
+
+    // Build HTML for options
+    const optionButtons = options.map((opt, i) =>
+      `<button class="option-btn" data-opt="${i}">${opt}</button>`
+    ).join("");
+
+    const modal = document.createElement("div");
+    modal.id = "option-modal";
+    modal.innerHTML = `
+      <div class="option-backdrop"></div>
+      <div class="option-dialog">
+        <p class="option-question">❓ ${question}</p>
+        <div class="option-buttons">${optionButtons}</div>
+        <button class="option-skip">Skip (let AI decide)</button>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    modal.querySelector(".option-skip")!.addEventListener("click", () => {
+      document.body.removeChild(modal);
+      resolve(null);
+    });
+
+    modal.querySelectorAll(".option-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const idx = parseInt((btn as HTMLElement).dataset.opt || "0");
+        const choice = options[idx];
+        log({ level: "success", message: `👍 Chose: ${choice}`, timestamp: Date.now() });
+        document.body.removeChild(modal);
+        resolve(choice);
+      });
+    });
+  });
+}
+
 // ── Command Dispatcher ────────────────────────────────────────────
 
 /** Main command entry — tries AI first, falls back to regex */
@@ -109,7 +149,19 @@ async function executeCommand(input: string): Promise<void> {
         log({ level: "info", message: text, timestamp: Date.now() });
       }
 
-      // Show planned actions summary
+      // Check for askUser (interactive prompt)
+      const askUser = result.toolResults.find((r: ExecResult) => r.askUser);
+      if (askUser && askUser.askUser) {
+        const { question, options } = askUser.askUser;
+        const choice = await showOptionPrompt(question, options);
+        if (choice !== null) {
+          // Feed user choice back into conversation and re-run
+          executeCommand(`${cmd} — user chose: ${choice}`);
+        }
+        sendBtn.disabled = false;
+        sendBtn.textContent = "▶ Send";
+        return;
+      }
       if (result.pendingCalls.length > 0) {
         const actions = result.pendingCalls
           .filter((c: PendingCall) => c.name !== "list_slides" && c.name !== "list_themes" && c.name !== "no_op" && c.name !== "web_search")
