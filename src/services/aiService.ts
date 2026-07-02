@@ -19,6 +19,7 @@ import {
   applyTheme, listAvailableThemes, applyDesignScheme, listDesignSchemes,
 } from "./masterLayoutThemeService";
 import { buildProfessionalSlide, getNBADemoData } from "./slideBuilderService";
+import { validateToolCall, readBackQA } from "./validateService";
 
 // ── Config ────────────────────────────────────────────────────────
 
@@ -236,7 +237,25 @@ CRITICAL — follow these rules:
    - Bracket: add_card for every match (heading=teams, subtitle=date/venue), 2-column grid
 9. If the request is vague, create ONE well-designed slide with substantive content. Better one good slide than multiple empty ones.
 10. When done, confirm what was created.
-11. **Professional slides**: when the user wants a polished, data-driven slide with cards/columns/insight bars — use build_professional_slide with the full JSON schema. This creates background, eyebrow, title, description, column cards, insight footer all at once. For NBA/football team slides, pass nba_demo=true.`;
+11. **Professional slides**: when the user wants a polished, data-driven slide with cards/columns/insight bars — use build_professional_slide with the full JSON schema. This creates background, eyebrow, title, description, column cards, insight footer all at once. For NBA/football team slides, pass nba_demo=true.
+
+─── FEW-SHOT EXAMPLES ───
+Example 1: User says "add a blue rectangle"
+→ add_shape(geometry="Rectangle", fillColor="#4A90D9", left=150, top=150, width=200, height=120)
+
+Example 2: User says "add a title and body text on a dark slide"
+→ set_slide_background(color="#1a1a2e")
+→ add_text_box(text="Quarterly Report", left=60, top=50, width=840, height=60, fontSize=32)
+→ add_text_box(text="Revenue grew 15% YoY driven by...", left=60, top=130, width=840, height=300, fontSize=16)
+
+Example 3: User says "create 3 cards in a row"
+→ add_card(left=40, top=100, width=280, height=80, heading="Card 1", subtitle="Details here")
+→ add_card(left=340, top=100, width=280, height=80, heading="Card 2", subtitle="Details here")
+→ add_card(left=640, top=100, width=280, height=80, heading="Card 3", subtitle="Details here")
+
+─── VALIDATION RULES (enforced) ───
+• All shapes within slide (960x540). left+width ≤ 960, top+height ≤ 540.
+• Min shape size: 2pt. Colors: hex #RRGGBB or named (blue, red, etc).`;
 
   const textMessages: string[] = [];
   const toolResults: ExecResult[] = [];
@@ -289,25 +308,38 @@ CRITICAL — follow these rules:
       const isReadOnly = tc.function.name === "list_slides" || tc.function.name === "list_themes" ||
                          tc.function.name === "web_search";
 
-      // ── Dedup: block duplicate add_slide BEFORE dryRun check ──
-      const isSlideAdd = tc.function.name === "add_slide" || tc.function.name === "add_slide_with_title";
-      if (isSlideAdd && addedSlideTitles.has(args.title || "")) {
-        result = { success: false, message: `⚠️ Duplicate slide "${args.title || "untitled"}" skipped.` };
-      } else {
-        // Track as used (even in dryRun, to prevent duplicates in planned actions)
-        if (isSlideAdd) addedSlideTitles.add(args.title || "");
+      // ── Step 5: Validate & Repair (pre-execution) ──
+      if (!isReadOnly) {
+        const validation = validateToolCall(tc.function.name, args);
+        if (!validation.valid) {
+          const errMsg = validation.errors.map(e => `❌ ${e.field || "?"}: ${e.message}`).join("; ");
+          result = { success: false, message: `Validation failed: ${errMsg}` };
+        } else if (validation.warnings.length > 0) {
+          console.warn(`[validate] ${tc.function.name} warnings:`, validation.warnings.map(w => w.message));
+        }
+      }
 
-        // In dryRun mode, still execute read-only tools so AI gets real data
-        if (dryRun && !isReadOnly) {
-          result = { success: true, message: `[Preview] Would call ${tc.function.name}` };
-        } else if (tc.function.name === "web_search" && searchCount >= 3) {
-          result = { success: false, message: "⚠️ Maximum 3 web searches reached. Create slides NOW with what you know." };
-        } else if (tc.function.name === "move_slide" && movedSlides.has(String(args.fromIndex))) {
-          result = { success: false, message: `⚠️ Slide ${args.fromIndex} was already moved — cannot move again.` };
+      // ── Dedup: block duplicate add_slide AFTER validation ──
+      if (!result) {
+        const isSlideAdd = tc.function.name === "add_slide" || tc.function.name === "add_slide_with_title";
+        if (isSlideAdd && addedSlideTitles.has(args.title || "")) {
+          result = { success: false, message: `⚠️ Duplicate slide "${args.title || "untitled"}" skipped.` };
         } else {
-          if (tc.function.name === "web_search") searchCount++;
-          if (tc.function.name === "move_slide") movedSlides.add(String(args.fromIndex));
-          result = await executeToolCall(tc.function.name, args, currentSlideId);
+          // Track as used (even in dryRun, to prevent duplicates in planned actions)
+          if (isSlideAdd) addedSlideTitles.add(args.title || "");
+
+          // In dryRun mode, still execute read-only tools so AI gets real data
+          if (dryRun && !isReadOnly) {
+            result = { success: true, message: `[Preview] Would call ${tc.function.name}` };
+          } else if (tc.function.name === "web_search" && searchCount >= 3) {
+            result = { success: false, message: "⚠️ Maximum 3 web searches reached. Create slides NOW with what you know." };
+          } else if (tc.function.name === "move_slide" && movedSlides.has(String(args.fromIndex))) {
+            result = { success: false, message: `⚠️ Slide ${args.fromIndex} was already moved — cannot move again.` };
+          } else {
+            if (tc.function.name === "web_search") searchCount++;
+            if (tc.function.name === "move_slide") movedSlides.add(String(args.fromIndex));
+            result = await executeToolCall(tc.function.name, args, currentSlideId);
+          }
         }
       }
 
@@ -418,6 +450,19 @@ export async function executePendingCalls(
       } catch { /* skip if can't check */ }
     }
   } catch { /* skip cleanup */ }
+
+  // ── Step 6: Read-back QA (post-execution verification) ──
+  if (defaultSid) {
+    try {
+      const writeCalls = calls.filter(c =>
+        !["list_slides", "list_themes", "no_op", "web_search", "apply_theme"].includes(c.name)
+      );
+      if (writeCalls.length > 0) {
+        const qa = await readBackQA(defaultSid, 1, writeCalls.map(c => c.name));
+        results.push({ success: qa.ok, message: qa.message });
+      }
+    } catch { /* QA is best-effort */ }
+  }
 
   return results;
 }
